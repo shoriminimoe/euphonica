@@ -105,6 +105,12 @@
 		<key name="artist-tag-delim-exceptions" type="as">
 			<default>["Simon &amp; Garfunkel", "Above &amp; Beyond"]</default>
 		</key>
+		<key name="genre-tag-delims" type="as">
+			<default>[",", ";", "/"]</default>
+		</key>
+		<key name="genre-tag-delim-exceptions" type="as">
+			<default>[]</default>
+		</key>
 		<key name="sort-nulls-first" type="b">
 			<default>false</default>
 		</key>
@@ -306,6 +312,7 @@
 	<schema id="io.github.htkhiem.Euphonica.state" path="/io/github/htkhiem/Euphonica/state/">
 		<child schema="io.github.htkhiem.Euphonica.state.albumview" name="albumview"/>
 		<child schema="io.github.htkhiem.Euphonica.state.artistview" name="artistview"/>
+		<child schema="io.github.htkhiem.Euphonica.state.genreview" name="genreview"/>
 		<child schema="io.github.htkhiem.Euphonica.state.folderview" name="folderview"/>
 		<child schema="io.github.htkhiem.Euphonica.state.playlistview" name="playlistview"/>
 		<child schema="io.github.htkhiem.Euphonica.state.dynplaylistview" name="dynplaylistview"/>
@@ -349,6 +356,14 @@
 		<key name="sort-direction" enum='io.github.htkhiem.Euphonica.sortdir'>
 			<default>'asc'</default>
 			<summary>Artist View sort direction</summary>
+		</key>
+	</schema>
+
+	<schema id="io.github.htkhiem.Euphonica.state.genreview" path="/io/github/htkhiem/Euphonica/state/genreview/">
+		<!-- Genre view state -->
+		<key name="sort-direction" enum='io.github.htkhiem.Euphonica.sortdir'>
+			<default>'asc'</default>
+			<summary>Genre View sort direction</summary>
 		</key>
 	</schema>
 
