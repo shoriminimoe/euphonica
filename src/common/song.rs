@@ -104,6 +104,7 @@ pub struct SongInfo {
     pub mbid: Option<String>,
     pub last_modified: Option<String>,
     pub last_played: Option<OffsetDateTime>,
+    pub genres: Vec<String>,
 }
 
 impl SongInfo {
@@ -479,6 +480,7 @@ impl From<mpd::song::Song> for SongInfo {
             mbid: None,
             last_modified: song.last_mod,
             last_played: None,
+            genres: Vec::new(),
         };
 
         if let Some(place) = song.place {
@@ -505,6 +507,7 @@ impl From<mpd::song::Song> for SongInfo {
         let mut albumartistsort: Option<String> = None;
         let mut album_artist_mbids: Vec<String> = Vec::new();
         let mut album_mbid: Option<String> = None;
+        let mut raw_genres: Vec<String> = Vec::new();
         for (tag, val) in song.tags.into_iter() {
             match tag.to_lowercase().as_str() {
                 tags::ALBUM => {
@@ -590,9 +593,14 @@ impl From<mpd::song::Song> for SongInfo {
                     // initialising the albumartist objects
                     album_artist_mbids.push(val);
                 }
+                tags::GENRE => {
+                    raw_genres.push(val);
+                }
                 _ => {}
             }
         }
+
+        res.genres = crate::common::parse_genre_values(&raw_genres);
 
         // Assume the artist IDs and artistsort tags are given in the same order as the artist tags
         for (idx, id) in artist_mbids.drain(..).enumerate() {
