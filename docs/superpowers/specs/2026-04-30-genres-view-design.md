@@ -5,7 +5,9 @@
 
 ## Goal
 
-Add a top-level **Genres** entry to the sidebar that browses the library by genre. Compound genre tags (e.g. `"Rock, Pop"`) must be split into atomic genres. Compound entries must never appear in the Genres list.
+Add a top-level **Genres** entry to the sidebar that browses the library by genre. The Genres list must show atomic genres, splitting compound single-value tags like `"Rock, Pop"` so that `"Rock"` and `"Pop"` appear as separate tiles.
+
+The one explicit exception is when MPD itself returns a multi-value Genre response in which one of the values happens to also be compound (e.g. `["Jazz", "Rock, Pop"]`) — see Splitting rule below. This is rare and accepted.
 
 ## User-visible behaviour
 
@@ -30,22 +32,22 @@ This honours the user's stated preference exactly: never re-split a value MPD co
 
 ## Architecture
 
-Modelled directly on `ArtistView`. A new `GenreView` widget owns its own `adw::NavigationView` stack with three pages:
+Modelled directly on `ArtistView`. A new `GenreView` widget owns its own `adw::NavigationView` stack with two pages:
 
 ```
-genre grid  →  genre content (album grid for one genre)  →  album content (existing AlbumContentView)
+genre grid  →  genre content (album grid for one genre)
 ```
 
-Each top-level view in the codebase (`AlbumView`, `ArtistView`, `FolderView`) keeps its own self-contained nav stack — `GenreView` follows the same convention. Cross-view navigation is intentionally avoided, matching how clicking an album from `ArtistView`'s discography pushes onto the artist view's stack rather than redirecting into Albums.
+Clicking an album in `GenreContentView` follows the **same cross-view convention `ArtistContentView` already uses**: it emits an `album-clicked` signal which the window catches and routes through `EuphonicaWindow::goto_album`, which switches the sidebar to the Albums stack and pushes onto `AlbumView`'s existing `AlbumContentView`. We do not nest a second `AlbumContentView` instance inside `GenreContentView`.
 
 ### New files
 
 | Path | Purpose |
 |---|---|
-| `src/common/genre.rs` | `Genre` GObject (name-only wrapper, modelled after `Artist` minus MBID/avatar fields). `parse_genre_tag(&str) -> Vec<&str>` mirroring `parse_mb_artist_tag` but consulting genre automatons. `parse_genre_values(&[String]) -> Vec<String>` applying the hybrid rule. |
+| `src/common/genre.rs` | `Genre` GObject (name-only wrapper, modelled after `Artist` minus MBID/avatar fields). `parse_genre_tag(&str) -> Vec<&str>` consulting the genre automatons. **Important:** unlike `parse_mb_artist_tag`, the genre splitter must still run when the exceptions automaton is `None`, because the genre-exceptions default is `[]`. The artist version's outer `if let (Some(exc), Some(delim)) = ...` short-circuits in that case; the genre version restructures to gate only on the delimiter automaton, treating a missing exceptions automaton as "no exceptions". `parse_genre_values(&[String]) -> Vec<String>` applies the hybrid rule (split only when `values.len() == 1`). |
 | `src/library/genre_cell.rs` + `src/gtk/library/genre-cell.ui` | Text-only tile for the genre grid (no `Cache` parameter — no cover loading). |
 | `src/library/genre_view.rs` + `src/gtk/library/genre-view.ui` | Top-level grid widget. Implements `LazyInit::populate` → `library.init_genres()`. Owns search, sort, and the nav stack. |
-| `src/library/genre_content_view.rs` + `src/gtk/library/genre-content-view.ui` | Per-genre album grid. Holds its own `gio::ListStore<Album>` and a nested `AlbumContentView` instance. On `bind(genre)` calls `library.get_genre_albums(name)` to populate. |
+| `src/library/genre_content_view.rs` + `src/gtk/library/genre-content-view.ui` | Per-genre album grid. Holds its own `gio::ListStore<Album>`. On `bind(genre)` calls `library.get_genre_albums(name)` to populate. Emits an `album-clicked` signal when a cell is activated; does **not** host its own `AlbumContentView`. |
 | `src/gtk/icons/genre-symbolic.svg` | Sidebar icon for the new entry. |
 
 ### Modified files
@@ -60,8 +62,8 @@ Each top-level view in the codebase (`AlbumView`, `ArtistView`, `FolderView`) ke
 | `src/client/wrapper.rs` | Add `pub async fn get_genres(&self, respond: &mut F) where F: FnMut(Genre)` running `Task::List(Term::Tag("genre"), Query::new(), None, ...)`, splitting each returned value via `parse_genre_tag`, deduping, emitting `Genre` GObjects. |
 | `src/library/controller.rs` | Add `genres: gio::ListStore`, `genres_initialized: Cell<bool>` to `imp::Library`. Add `genres()` getter. Extend `clear()` to reset both. Add `init_genres()`. Add `get_genre_albums(genre, respond)` (see algorithm below). |
 | `src/library/mod.rs` | Declare and re-export the three new modules. |
-| `src/sidebar/sidebar.rs` + `src/gtk/sidebar.ui` | Add `genres_btn: TemplateChild<SidebarButton>` between Artists and Folders, with the toggle handler routing to stack name `"genres"`. Include it in the show-sidebar click loop and the `set_view` match. |
-| `src/window.rs` + `src/window.ui` | Register `GenreView` as the `"genres"` page in the existing stack. Call `GenreView::setup` mirroring `AlbumView::setup`. |
+| `src/sidebar/sidebar.rs` + `src/gtk/sidebar.ui` | Add `genres_btn: TemplateChild<SidebarButton>` between Artists and Folders, with the toggle handler routing to stack name `"genres"`. Include it in the show-sidebar click loop. (No change to `set_view` is needed — that match only handles entries that can be cross-navigated to from outside the sidebar; Genres is not such a destination today.) |
+| `src/window.rs` + `src/window.ui` | Register `GenreView` as the `"genres"` page in the existing stack. Call `GenreView::setup` mirroring `AlbumView::setup`. Add an `album-clicked` signal handler on `GenreContentView` that calls the existing `goto_album()` (same shape as the `ArtistContentView` handler at `window.rs:1042`). |
 | `src/preferences/library.rs` + `src/gtk/preferences/library.ui` | Add a "Genre tag delimiters" section mirroring the artist delimiters UI. On change, call the new `rebuild_genre_*` functions. Reuse the same restart-required wording the artist section uses. |
 | `src/euphonica.gresource.xml` | Register the three new `.ui` files under the main prefix and the new SVG under the icons prefix. |
 
