@@ -12,3 +12,4 @@ pub const SONG_MBID: &str = "musicbrainz_trackid";
 pub const ALBUM_MBID: &str = "musicbrainz_albumid";
 pub const ARTIST_MBID: &str = "musicbrainz_artistid";
 pub const ALBUMARTIST_MBID: &str = "musicbrainz_albumartistid";
+pub const GENRE: &str = "genre";
