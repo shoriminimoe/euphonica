@@ -166,6 +166,18 @@ mod tests {
 
     static TEST_LOCK: Mutex<()> = Mutex::new(());
 
+    struct AutomatonRestoreGuard {
+        delim: Option<AhoCorasick>,
+        excepts: Option<AhoCorasick>,
+    }
+
+    impl Drop for AutomatonRestoreGuard {
+        fn drop(&mut self) {
+            *GENRE_DELIM_AUTOMATON.write().unwrap() = self.delim.take();
+            *GENRE_DELIM_EXCEPTION_AUTOMATON.write().unwrap() = self.excepts.take();
+        }
+    }
+
     fn with_automatons<F: FnOnce()>(delims: &[&str], excepts: &[&str], f: F) {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let prev_delim = std::mem::replace(
@@ -176,11 +188,11 @@ mod tests {
             &mut *GENRE_DELIM_EXCEPTION_AUTOMATON.write().unwrap(),
             build_aho_corasick_automaton(excepts),
         );
-
+        let _restore = AutomatonRestoreGuard {
+            delim: prev_delim,
+            excepts: prev_excepts,
+        };
         f();
-
-        *GENRE_DELIM_AUTOMATON.write().unwrap() = prev_delim;
-        *GENRE_DELIM_EXCEPTION_AUTOMATON.write().unwrap() = prev_excepts;
     }
 
     #[test]
