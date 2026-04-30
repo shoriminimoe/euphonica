@@ -17,7 +17,7 @@ use std::{
 use time::{Date, Month, OffsetDateTime};
 
 use super::Stickers;
-use super::{AlbumInfo, ArtistInfo, artists_to_string, parse_mb_artist_tag};
+use super::{AlbumInfo, ArtistInfo, artists_to_string, parse_genre_values, parse_mb_artist_tag};
 
 // Mostly for eyecandy
 #[derive(Clone, Copy, Debug, glib::Enum, PartialEq, Default)]
@@ -604,7 +604,7 @@ impl From<mpd::song::Song> for SongInfo {
             }
         }
 
-        res.genres = crate::common::parse_genre_values(&raw_genres);
+        res.genres = parse_genre_values(&raw_genres);
 
         // Assume the artist IDs and artistsort tags are given in the same order as the artist tags
         for (idx, id) in artist_mbids.drain(..).enumerate() {
