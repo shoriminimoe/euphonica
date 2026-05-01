@@ -26,7 +26,7 @@ use crate::cache::sqlite;
 use crate::common::DynamicPlaylist;
 use crate::utils::settings_manager;
 use crate::{
-    common::{Album, Artist, INode, Song, SongInfo, Stickers},
+    common::{Album, Artist, Genre, INode, Song, SongInfo, Stickers, parse_genre_tag},
     player::PlaybackFlow,
     utils,
 };
@@ -790,10 +790,8 @@ impl MpdWrapper {
 
     pub async fn get_genres<F>(&self, respond: &mut F) -> ClientResult<()>
     where
-        F: FnMut(crate::common::Genre),
+        F: FnMut(Genre),
     {
-        use crate::common::{Genre, parse_genre_tag};
-        // FxHashSet is already imported at the top of this file.
         let (s, r) = oneshot::channel();
         let grouped_vals = self
             .background(
