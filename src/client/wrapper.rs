@@ -788,6 +788,39 @@ impl MpdWrapper {
             .await
     }
 
+    pub async fn get_genres<F>(&self, respond: &mut F) -> ClientResult<()>
+    where
+        F: FnMut(crate::common::Genre),
+    {
+        use crate::common::{Genre, parse_genre_tag};
+        // FxHashSet is already imported at the top of this file.
+        let (s, r) = oneshot::channel();
+        let grouped_vals = self
+            .background(
+                Task::List(Term::Tag(Cow::Borrowed("genre")), Query::new(), None, s),
+                r,
+            )
+            .await?;
+        let mut seen: FxHashSet<String> = FxHashSet::default();
+        for (_key, values) in grouped_vals.groups.into_iter() {
+            for value in values.into_iter() {
+                if value.trim().is_empty() {
+                    continue;
+                }
+                for atomic in parse_genre_tag(&value) {
+                    let trimmed = atomic.trim();
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    if seen.insert(trimmed.to_owned()) {
+                        respond(Genre::new(trimmed));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub async fn get_albums_by_query<F>(
         &self,
         query: Query<'static>,
