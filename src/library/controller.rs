@@ -718,4 +718,40 @@ impl Library {
 
         Ok(())
     }
+
+    /// Find all albums whose songs include the given genre after splitting.
+    /// Mirrors `get_artist_content`'s shape: server-side filter narrows the
+    /// candidate set, client-side verification drops substring false positives
+    /// (e.g. "Rock" matching "Rock & Roll"), and unique albums are emitted.
+    pub async fn get_albums_by_genre<FA>(
+        &self,
+        genre: String,
+        mut respond_album: FA,
+    ) -> ClientResult<()>
+    where
+        FA: FnMut(Album),
+    {
+        let mut song_query = Query::new();
+        song_query.and_with_op(
+            Term::Tag(tags::GENRE.into()),
+            QueryOperation::Contains,
+            genre.clone(),
+        );
+
+        let mut visited_albums = FxHashSet::default();
+        self.client()
+            .get_song_infos_by_query(song_query, true, &mut |batch| {
+                for song in batch.into_iter() {
+                    if !song.genres.iter().any(|g| g == &genre) {
+                        continue;
+                    }
+                    if let Some(album) = song.album.as_ref() {
+                        if visited_albums.insert(album.get_comp_id().to_owned()) {
+                            respond_album(album.clone().into());
+                        }
+                    }
+                }
+            })
+            .await
+    }
 }
