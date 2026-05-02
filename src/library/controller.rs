@@ -1,7 +1,7 @@
 use crate::{
     cache::{Cache, sqlite},
     client::{Error as ClientError, MpdWrapper, Result as ClientResult, StickerSetMode},
-    common::{Album, Artist, DynamicPlaylist, INode, Song, SongInfo, Stickers, tags},
+    common::{Album, Artist, DynamicPlaylist, Genre, INode, Song, SongInfo, Stickers, tags},
     player::Player,
     utils::settings_manager,
 };
@@ -47,6 +47,9 @@ mod imp {
         pub artists_initialized: Cell<bool>,
         #[derivative(Default(value = "gio::ListStore::new::<Artist>()"))]
         pub recent_artists: gio::ListStore,
+        #[derivative(Default(value = "gio::ListStore::new::<Genre>()"))]
+        pub genres: gio::ListStore,
+        pub genres_initialized: Cell<bool>,
 
         // Folder view
         // Files and folders
@@ -133,6 +136,8 @@ impl Library {
         self.imp().artists.remove_all();
         self.imp().artists_initialized.set(false);
         self.imp().recent_artists.remove_all();
+        self.imp().genres.remove_all();
+        self.imp().genres_initialized.set(false);
         self.imp().playlists.remove_all();
         self.imp().playlists_initialized.set(false);
         self.imp().dyn_playlists.remove_all();
@@ -448,6 +453,11 @@ impl Library {
         self.imp().recent_artists.clone()
     }
 
+    /// Get a reference to the local genres store.
+    pub fn genres(&self) -> gio::ListStore {
+        self.imp().genres.clone()
+    }
+
     /// Retrieve songs in a playlist
     pub async fn get_playlist_songs<F>(&self, name: String, respond: &mut F) -> ClientResult<()>
     where
@@ -628,6 +638,20 @@ impl Library {
             self.client()
                 .get_albums_by_query(Query::new(), &mut |album| {
                     model.append(&album);
+                })
+                .await?;
+        }
+        Ok(())
+    }
+
+    pub async fn init_genres(&self) -> ClientResult<()> {
+        if !self.imp().genres_initialized.get() {
+            self.imp().genres_initialized.set(true);
+            let model = self.imp().genres.clone();
+            model.remove_all();
+            self.client()
+                .get_genres(&mut |genre| {
+                    model.append(&genre);
                 })
                 .await?;
         }
