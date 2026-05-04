@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+	<requires lib="gtk" version="4.0"/>
+	<template class="EuphonicaGenreView" parent="GtkWidget">
+		<child>
+			<object class="AdwNavigationView" id="nav_view">
+				<child>
+					<object class="AdwNavigationPage">
+						<property name="title">Genres</property>
+						<child>
+							<object class="AdwToolbarView">
+								<child type="top">
+									<object class="AdwHeaderBar">
+										<property name="show-title">false</property>
+										<child type="start">
+											<object class="GtkButton" id="show_sidebar">
+												<property name="icon-name">dock-left-symbolic</property>
+												<property name="tooltip-text" translatable="true">Show sidebar</property>
+												<property name="visible">false</property>
+											</object>
+										</child>
+										<child type="end">
+											<object class="GtkToggleButton" id="search_btn">
+												<property name="icon-name">edit-find-symbolic</property>
+											</object>
+										</child>
+										<child type="end">
+											<object class="GtkButton" id="sort_dir_btn">
+												<style>
+													<class name="flat"/>
+												</style>
+												<child>
+													<object class="GtkBox">
+														<property name="spacing">6</property>
+														<child>
+															<object class="GtkImage" id="sort_dir">
+																<property name="icon-name">view-sort-ascending-symbolic</property>
+															</object>
+														</child>
+														<child>
+															<object class="GtkLabel">
+																<property name="label" translatable="true">Name</property>
+															</object>
+														</child>
+													</object>
+												</child>
+											</object>
+										</child>
+									</object>
+								</child>
+								<child type="top">
+									<object class="GtkSearchBar" id="search_bar">
+										<property name="key-capture-widget">nav_view</property>
+										<child>
+											<object class="GtkSearchEntry" id="search_entry">
+												<property name="search-delay">150</property>
+												<property name="width-request">100</property>
+											</object>
+										</child>
+									</object>
+								</child>
+								<property name="content">
+									<object class="EuphonicaContentStack" id="stack">
+										<property name="placeholder">
+											<object class="AdwStatusPage">
+												<property name="title" translatable="true">No Genres</property>
+											</object>
+										</property>
+										<property name="content">
+											<object class="GtkScrolledWindow">
+												<property name="hscrollbar-policy">never</property>
+												<property name="vscrollbar-policy">automatic</property>
+												<property name="propagate-natural-height">true</property>
+												<property name="has-frame">false</property>
+												<property name="vexpand">true</property>
+												<property name="child">
+													<object class="GtkGridView" id="grid_view">
+														<property name="orientation">1</property>
+														<property name="min-columns">1</property>
+														<property name="max-columns">6</property>
+														<property name="single-click-activate">true</property>
+														<style>
+															<class name="no-bg"/>
+															<class name="padding-12"/>
+														</style>
+													</object>
+												</property>
+											</object>
+										</property>
+									</object>
+								</property>
+							</object>
+						</child>
+					</object>
+				</child>
+				<child>
+					<object class="AdwNavigationPage" id="content_page">
+						<property name="tag">content</property>
+						<property name="title">Albums</property>
+						<child>
+							<object class="EuphonicaGenreContentView" id="content_view"></object>
+						</child>
+					</object>
+				</child>
+			</object>
+		</child>
+	</template>
+</interface>
