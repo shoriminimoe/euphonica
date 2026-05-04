@@ -9,6 +9,10 @@ mod artist_cell;
 mod artist_content_view;
 mod artist_view;
 
+mod genre_cell;
+mod genre_content_view;
+mod genre_view;
+
 mod folder_view;
 
 mod playlist_content_view;
@@ -37,6 +41,10 @@ pub use album_view::AlbumView;
 use artist_cell::ArtistCell;
 pub use artist_content_view::ArtistContentView;
 pub use artist_view::ArtistView;
+
+use genre_cell::GenreCell;
+pub use genre_content_view::GenreContentView;
+pub use genre_view::GenreView;
 
 pub use folder_view::FolderView;
 
