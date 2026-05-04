@@ -35,6 +35,13 @@
 							</object>
 						</child>
 						<child>
+							<object class="EuphonicaSidebarButton" id="genres_btn">
+								<property name="group">recent_btn</property>
+								<property name="label" translatable="true">Genres</property>
+								<property name="icon_name">genre-symbolic</property>
+							</object>
+						</child>
+						<child>
 							<object class="EuphonicaSidebarButton" id="folders_btn">
 								<property name="group">recent_btn</property>
 								<property name="label" translatable="true">Folders</property>
