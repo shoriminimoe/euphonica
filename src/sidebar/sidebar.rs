@@ -24,6 +24,8 @@ mod imp {
         #[template_child]
         pub artists_btn: TemplateChild<SidebarButton>,
         #[template_child]
+        pub genres_btn: TemplateChild<SidebarButton>,
+        #[template_child]
         pub folders_btn: TemplateChild<SidebarButton>,
         #[template_child]
         pub playlists_section: TemplateChild<gtk::Box>,
@@ -153,6 +155,16 @@ impl Sidebar {
             move |btn| {
                 if btn.is_active() {
                     stack.set_visible_child_name("artists");
+                }
+            }
+        ));
+
+        self.imp().genres_btn.connect_toggled(clone!(
+            #[weak]
+            stack,
+            move |btn| {
+                if btn.is_active() {
+                    stack.set_visible_child_name("genres");
                 }
             }
         ));
@@ -408,6 +420,7 @@ impl Sidebar {
             &self.imp().recent_btn.get(),
             &self.imp().albums_btn.get(),
             &self.imp().artists_btn.get(),
+            &self.imp().genres_btn.get(),
             &self.imp().folders_btn.get(),
             &self.imp().playlists_btn.get(),
             &self.imp().dyn_playlists_btn.get(),
