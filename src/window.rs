@@ -23,8 +23,8 @@ use crate::{
     client::{ClientState, ConnectionState, Result as ClientResult},
     common::{Album, Artist, INode, ThemeSelector, blend_mode::*, paintables::FadePaintable},
     library::{
-        AlbumView, ArtistContentView, ArtistView, DynamicPlaylistView, FolderView, PlaylistView,
-        RecentView,
+        AlbumView, ArtistContentView, ArtistView, DynamicPlaylistView, FolderView,
+        GenreContentView, GenreView, PlaylistView, RecentView,
     },
     player::{Player, PlayerBar, QueueView},
     sidebar::Sidebar,
@@ -167,6 +167,8 @@ mod imp {
         pub album_view: TemplateChild<AlbumView>,
         #[template_child]
         pub artist_view: TemplateChild<ArtistView>,
+        #[template_child]
+        pub genre_view: TemplateChild<GenreView>,
         #[template_child]
         pub folder_view: TemplateChild<FolderView>,
         #[template_child]
@@ -431,6 +433,7 @@ mod imp {
                 self.recent_view.upcast_ref::<gtk::Widget>(),
                 self.album_view.upcast_ref::<gtk::Widget>(),
                 self.artist_view.upcast_ref::<gtk::Widget>(),
+                self.genre_view.upcast_ref::<gtk::Widget>(),
                 self.folder_view.upcast_ref::<gtk::Widget>(),
                 self.playlist_view.upcast_ref::<gtk::Widget>(),
                 self.dyn_playlist_view.upcast_ref::<gtk::Widget>(),
@@ -954,6 +957,9 @@ impl EuphonicaWindow {
             .artist_view
             .setup(app.get_library(), app.get_cache(), &win);
         win.imp()
+            .genre_view
+            .setup(app.get_library(), app.get_cache());
+        win.imp()
             .folder_view
             .setup(app.get_library(), app.get_cache());
         win.imp().dyn_playlist_view.setup(
@@ -1046,6 +1052,18 @@ impl EuphonicaWindow {
                 #[watch(rename_to = this)]
                 win,
                 move |_: ArtistContentView, album: Album| {
+                    this.goto_album(&album);
+                }
+            ),
+        );
+
+        win.imp().genre_view.get_content_view().connect_closure(
+            "album-clicked",
+            false,
+            closure_local!(
+                #[watch(rename_to = this)]
+                win,
+                move |_: GenreContentView, album: Album| {
                     this.goto_album(&album);
                 }
             ),
