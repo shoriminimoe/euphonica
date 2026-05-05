@@ -165,6 +165,17 @@
                     </child>
 
                     <child>
+                      <object class="AdwWrapBox" id="genres_box">
+                        <property name="child-spacing">3</property>
+                        <property name="line-spacing">3</property>
+                        <property name="justify">0</property>
+                        <property name="justify-last-line">false</property>
+                        <property name="align">0.0</property>
+                        <property name="visible">false</property>
+                      </object>
+                    </child>
+
+                    <child>
                       <object class="GtkStack" id="infobox_spinner">
                         <child>
                           <object class="GtkStackPage">
