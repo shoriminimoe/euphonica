@@ -1412,6 +1412,18 @@ impl EuphonicaWindow {
             ),
         );
 
+        win.imp().genre_view.get_content_view().connect_closure(
+            "artist-clicked",
+            false,
+            closure_local!(
+                #[watch(rename_to = this)]
+                win,
+                move |_: GenreContentView, artist: Artist| {
+                    this.goto_artist(&artist);
+                }
+            ),
+        );
+
         win.bind_state();
         win.setup_signals();
 
