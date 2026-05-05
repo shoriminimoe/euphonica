@@ -446,6 +446,7 @@ impl Sidebar {
         match view_name {
             "albums" => self.imp().albums_btn.set_active(true),
             "artists" => self.imp().artists_btn.set_active(true),
+            "genres" => self.imp().genres_btn.set_active(true),
             "queue" => self.imp().queue_btn.set_active(true),
             "playlists" => self.imp().playlists_btn.set_active(true),
             _ => unimplemented!(),

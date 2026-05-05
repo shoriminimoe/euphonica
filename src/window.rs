@@ -21,7 +21,7 @@
 use crate::{
     application::EuphonicaApplication,
     client::{ClientState, ConnectionState, Result as ClientResult},
-    common::{Album, Artist, INode, ThemeSelector, paintables::FadePaintable},
+    common::{Album, Artist, Genre, INode, ThemeSelector, paintables::FadePaintable},
     library::{
         AlbumView, ArtistContentView, ArtistView, DynamicPlaylistView, FolderView,
         GenreContentView, GenreView, PlaylistView, RecentView,
@@ -1622,6 +1622,16 @@ impl EuphonicaWindow {
     pub fn goto_artist(&self, artist: &Artist) {
         self.imp().artist_view.on_artist_clicked(artist);
         self.imp().sidebar.set_view("artists");
+        if self.imp().split_view.shows_sidebar() {
+            self.imp()
+                .split_view
+                .set_show_sidebar(!self.imp().split_view.is_collapsed());
+        }
+    }
+
+    pub fn goto_genre(&self, genre: &Genre) {
+        self.imp().genre_view.on_genre_clicked(genre);
+        self.imp().sidebar.set_view("genres");
         if self.imp().split_view.shows_sidebar() {
             self.imp()
                 .split_view
