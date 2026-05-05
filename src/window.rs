@@ -1563,6 +1563,9 @@ impl EuphonicaWindow {
                 "artists" => {
                     imp.artist_view.populate();
                 }
+                "genres" => {
+                    imp.genre_view.populate();
+                }
                 "folders" => {
                     imp.folder_view.populate();
                 }
@@ -1639,45 +1642,45 @@ impl EuphonicaWindow {
     /// Set blurred background to a new image, if enabled. Use thumbnail version to
     /// minimise disk read time.
     fn queue_new_background(&self) {
-        if let Some(player) = self.imp().player.upgrade() {
-            if let Some(sender) = self.imp().sender_to_bg.get() {
-                glib::spawn_future_local(clone!(
-                    #[weak(rename_to = this)]
-                    self,
-                    #[weak]
-                    player,
-                    #[strong]
-                    sender,
-                    #[upgrade_or]
-                    ClientResult::Ok(()),
-                    async move {
-                        if let Some(path) = player
-                            .current_song_cover_path(true)
-                            .await?
-                            .and_then(|path| if path.exists() { Some(path) } else { None })
-                        {
-                            let settings = settings_manager().child("ui");
-                            let config = BlurConfig {
-                                width: this.width() as u32,
-                                height: this.height() as u32,
-                                radius: settings.uint("bg-blur-radius"),
-                                is_dark: adw::StyleManager::default().is_dark(),
-                                fade: true, // new image, must fade
-                            };
-                            let _ =
-                                sender.send_blocking(WindowMessage::NewBackground(path, config));
-                        } else {
-                            let _ = sender.send_blocking(WindowMessage::ClearBackground);
-                            this.imp().push_tex(None, true);
-                        }
-                        Ok(())
+    if let Some(player) = self.imp().player.upgrade() {
+        if let Some(sender) = self.imp().sender_to_bg.get() {
+            glib::spawn_future_local(clone!(
+                #[weak(rename_to = this)]
+                self,
+                #[weak]
+                player,
+                #[strong]
+                sender,
+                #[upgrade_or]
+                ClientResult::Ok(()),
+                async move {
+                    if let Some(path) = player
+                        .current_song_cover_path(true)
+                        .await?
+                        .and_then(|path| if path.exists() { Some(path) } else { None })
+                    {
+                        let settings = settings_manager().child("ui");
+                        let config = BlurConfig {
+                            width: this.width() as u32,
+                            height: this.height() as u32,
+                            radius: settings.uint("bg-blur-radius"),
+                            is_dark: adw::StyleManager::default().is_dark(),
+                            fade: true, // new image, must fade
+                        };
+                        let _ =
+                            sender.send_blocking(WindowMessage::NewBackground(path, config));
+                    } else {
+                        let _ = sender.send_blocking(WindowMessage::ClearBackground);
+                        this.imp().push_tex(None, true);
                     }
-                ));
-            } else {
-                self.imp().push_tex(None, true);
-            }
+                    Ok(())
+                }
+            ));
+        } else {
+            self.imp().push_tex(None, true);
         }
     }
+}
 
     fn queue_background_update(&self, fade: bool) {
         if let Some(sender) = self.imp().sender_to_bg.get() {
