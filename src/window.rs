@@ -1219,6 +1219,9 @@ impl EuphonicaWindow {
                     "artists" => {
                         imp.artist_view.populate();
                     }
+                    "genres" => {
+                        imp.genre_view.populate();
+                    }
                     "folders" => {
                         imp.folder_view.populate();
                     }
