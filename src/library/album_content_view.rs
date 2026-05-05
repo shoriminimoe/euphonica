@@ -1,4 +1,5 @@
-use super::{Library, artist_tag::ArtistTag};
+use super::{Library, artist_tag::ArtistTag, genre_tag::GenreTag};
+use rustc_hash::FxHashSet;
 use crate::{
     cache::{Cache, CacheState, Error as CacheError, placeholders::EMPTY_ALBUM_STRING},
     client::{ClientState, state::StickersSupportLevel},
@@ -41,6 +42,8 @@ mod imp {
         pub title: TemplateChild<gtk::Label>,
         #[template_child]
         pub artists_box: TemplateChild<adw::WrapBox>,
+        #[template_child]
+        pub genres_box: TemplateChild<adw::WrapBox>,
         #[template_child]
         pub rating: TemplateChild<Rating>,
         #[template_child]
@@ -86,6 +89,8 @@ mod imp {
         pub sel_model: gtk::MultiSelection,
         #[derivative(Default(value = "gio::ListStore::new::<ArtistTag>()"))]
         pub artist_tags: gio::ListStore,
+        #[derivative(Default(value = "gio::ListStore::new::<GenreTag>()"))]
+        pub genre_tags: gio::ListStore,
         pub library: WeakRef<Library>,
         pub album: RefCell<Option<Album>>,
         pub window: WeakRef<EuphonicaWindow>,
@@ -936,6 +941,25 @@ impl AlbumContentView {
                         })
                         .sum::<u64>() as f64,
                 ));
+                // Populate genre tags from union of songs' genres.
+                let genres_box = this.imp().genres_box.get();
+                let window = this.imp().window.upgrade().unwrap();
+                let mut seen: FxHashSet<String> = FxHashSet::default();
+                let mut new_tags: Vec<GenreTag> = Vec::new();
+                for item in song_list.iter::<Song>() {
+                    if let Ok(song) = item {
+                        for genre in song.get_info().genres.iter() {
+                            if seen.insert(genre.clone()) {
+                                new_tags.push(GenreTag::new(genre, &window));
+                            }
+                        }
+                    }
+                }
+                this.imp().genre_tags.extend_from_slice(&new_tags);
+                for tag in new_tags {
+                    genres_box.append(&tag);
+                }
+                genres_box.set_visible(!seen.is_empty());
                 // The extra fluff later
                 this.schedule_cover(false).await;
                 this.update_meta(false).await;
@@ -953,6 +977,12 @@ impl AlbumContentView {
             self.imp().artists_box.remove(&tag.unwrap());
         }
         self.imp().artist_tags.remove_all();
+        // Clear genres wrapbox. TODO: when adw 1.8 drops as stable please use remove_all() instead.
+        for tag in self.imp().genre_tags.iter::<gtk::Widget>() {
+            self.imp().genres_box.remove(&tag.unwrap());
+        }
+        self.imp().genre_tags.remove_all();
+        self.imp().genres_box.set_visible(false);
 
         if let Some(id) = self.imp().cover_signal_id.take()
             && let Some(cache) = self.imp().cache.get()
