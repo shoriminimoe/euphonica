@@ -753,4 +753,41 @@ impl Library {
             })
             .await
     }
+
+    /// Find all artists whose songs include the given genre after splitting.
+    /// Same algorithmic shape as `get_albums_by_genre`: server-side substring
+    /// filter narrows the candidate set, client-side verification drops
+    /// substring false positives, and each surviving song's `artists` Vec
+    /// contributes — deduped by `Artist::get_comp_id()`.
+    pub async fn get_artists_by_genre<FA>(
+        &self,
+        genre: String,
+        mut respond_artist: FA,
+    ) -> ClientResult<()>
+    where
+        FA: FnMut(Artist),
+    {
+        let mut song_query = Query::new();
+        song_query.and_with_op(
+            Term::Tag(tags::GENRE.into()),
+            QueryOperation::Contains,
+            genre.clone(),
+        );
+
+        let mut visited_artists = FxHashSet::default();
+        self.client()
+            .get_song_infos_by_query(song_query, true, &mut |batch| {
+                for song in batch.into_iter() {
+                    if !song.genres.iter().any(|g| g == &genre) {
+                        continue;
+                    }
+                    for info in song.artists.iter() {
+                        if visited_artists.insert(info.get_comp_id().to_owned()) {
+                            respond_artist(Artist::from(info.clone()));
+                        }
+                    }
+                }
+            })
+            .await
+    }
 }
