@@ -23,10 +23,6 @@ use crate::{
     utils,
 };
 
-// Allows us to implicitly grant read access to files outside of the sandbox.
-// The default FileDialog will simply copy the file to /run/..., which is
-// not applicable for opening namedpipes.
-use ashpd::desktop::file_chooser::SelectedFiles;
 
 const FFT_SIZES: &[u32; 4] = &[512, 1024, 2048, 4096];
 
@@ -127,9 +123,7 @@ mod imp {
         pub pipewire_restart_between_songs: TemplateChild<adw::SwitchRow>,
         // FIFO
         #[template_child]
-        pub fifo_path: TemplateChild<adw::ActionRow>,
-        #[template_child]
-        pub fifo_browse: TemplateChild<gtk::Button>,
+        pub fifo_path: TemplateChild<adw::EntryRow>,
         #[template_child]
         pub fifo_format: TemplateChild<adw::EntryRow>,
         #[template_child]
@@ -184,8 +178,7 @@ mod imp {
             let viz_settings = utils::settings_manager().child("client");
             let fifo_path_row = self.fifo_path.get();
             viz_settings
-                .bind("mpd-fifo-path", &fifo_path_row, "subtitle")
-                .get_only()
+                .bind("mpd-fifo-path", &fifo_path_row, "text")
                 .build();
             viz_settings
                 .bind(
@@ -194,30 +187,6 @@ mod imp {
                     "active",
                 )
                 .build();
-            self.fifo_browse.connect_clicked(|_| {
-                utils::tokio_runtime().spawn(async move {
-                    let maybe_files = SelectedFiles::open_file()
-                        .title("Select the FIFO output file")
-                        .modal(true)
-                        .multiple(false)
-                        .send()
-                        .await
-                        .expect("ashpd file open await failure")
-                        .response();
-
-                    if let Ok(files) = maybe_files {
-                        let fifo_settings = utils::settings_manager().child("client");
-                        let uris = files.uris();
-                        if !uris.is_empty() {
-                            fifo_settings
-                                .set_string("mpd-fifo-path", uris[0].as_str())
-                                .expect("Unable to save FIFO path");
-                        }
-                    } else {
-                        println!("{maybe_files:?}");
-                    }
-                });
-            });
             let viz_source = self.viz_source.get();
             viz_settings
                 .bind("mpd-visualizer-pcm-source", &viz_source, "selected")
