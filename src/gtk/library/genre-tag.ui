@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <template class="EuphonicaGenreTag" parent="GtkButton">
+    <style>
+      <class name="circular"/>
+    </style>
+    <child>
+      <object class="GtkLabel" id="name">
+        <property name="ellipsize">3</property>
+        <property name="margin-start">8</property>
+        <property name="margin-end">8</property>
+      </object>
+    </child>
+  </template>
+</interface>

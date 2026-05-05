@@ -11,6 +11,7 @@ mod artist_view;
 
 mod genre_cell;
 mod genre_content_view;
+mod genre_tag;
 mod genre_view;
 
 mod folder_view;
