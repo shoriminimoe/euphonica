@@ -374,14 +374,14 @@ impl GenreContentView {
         if self.imp().artists_initialized.get() {
             return;
         }
-        self.imp().artists_initialized.set(true);
-        self.imp().artist_list.remove_all();
         let Some(library) = self.imp().library.upgrade() else {
             return;
         };
         let Some(genre) = self.imp().current_genre.borrow().clone() else {
             return;
         };
+        self.imp().artists_initialized.set(true);
+        self.imp().artist_list.remove_all();
         let model = self.imp().artist_list.clone();
         let stack = self.imp().artists_stack.get();
         stack.show_spinner();
