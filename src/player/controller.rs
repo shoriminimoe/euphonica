@@ -28,6 +28,7 @@ use mpd::{
     ReplayGain, SaveMode, Subsystem,
     status::{AudioFormat, State},
 };
+use rand::seq::SliceRandom;
 use std::{
     cell::{Cell, OnceCell, RefCell},
     ops::Deref,
@@ -86,6 +87,41 @@ impl FftStatus {
 pub enum SwapDirection {
     Up,
     Down,
+}
+
+/// One-shot shuffle mode for the queue's Shuffle button. Distinct from
+/// MPD's playback `random` mode, which is a continuous toggle.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ShuffleMode {
+    Tracks,
+    Album,
+}
+
+impl ShuffleMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Tracks => "tracks",
+            Self::Album => "album",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "album" => Self::Album,
+            _ => Self::Tracks,
+        }
+    }
+}
+
+/// Identifier used to detect contiguous same-album runs in the queue.
+/// Falls back to the song's own comp_id (URI/MBID) when the song has no
+/// album, so albumless tracks form distinct one-element groups.
+fn song_cluster_id(song: &Song) -> String {
+    if let Some(album) = song.get_album() {
+        album.get_comp_id().to_owned()
+    } else {
+        song.get_info().get_comp_id().to_owned()
+    }
 }
 
 impl PlaybackFlow {
@@ -1658,6 +1694,78 @@ impl Player {
 
     pub async fn clear_queue(&self) -> ClientResult<()> {
         self.client()?.clear_queue().await
+    }
+
+    /// Apply a one-shot shuffle to the queue, preserving the head cluster
+    /// (the contiguous run of same-album tracks containing the currently
+    /// playing position) so the playing album finishes naturally.
+    pub async fn shuffle_queue(&self, mode: ShuffleMode) -> ClientResult<()> {
+        let queue = &self.imp().queue;
+        let queue_len = queue.n_items();
+        if queue_len == 0 {
+            return Ok(());
+        }
+
+        let boundary = if let Some(cur_pos) = self.queue_pos() {
+            if let Some(cur) = queue.item(cur_pos).and_downcast::<Song>() {
+                let cur_id = song_cluster_id(&cur);
+                let mut cluster_end = cur_pos;
+                while cluster_end + 1 < queue_len {
+                    if let Some(next) = queue.item(cluster_end + 1).and_downcast::<Song>() {
+                        if song_cluster_id(&next) == cur_id {
+                            cluster_end += 1;
+                            continue;
+                        }
+                    }
+                    break;
+                }
+                cluster_end + 1
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+
+        if boundary >= queue_len {
+            return Ok(());
+        }
+
+        let client = self.client()?;
+        match mode {
+            ShuffleMode::Tracks => {
+                client.shuffle_range(boundary).await?;
+            }
+            ShuffleMode::Album => {
+                let mut groups: Vec<Vec<String>> = Vec::new();
+                let mut cur_id: Option<String> = None;
+                for i in boundary..queue_len {
+                    if let Some(song) = queue.item(i).and_downcast::<Song>() {
+                        let id = song_cluster_id(&song);
+                        let uri = song.get_uri().to_owned();
+                        match &cur_id {
+                            Some(prev) if prev == &id => {
+                                groups.last_mut().unwrap().push(uri);
+                            }
+                            _ => {
+                                cur_id = Some(id);
+                                groups.push(vec![uri]);
+                            }
+                        }
+                    }
+                }
+                if groups.len() <= 1 {
+                    return Ok(());
+                }
+                let mut rng = rand::rng();
+                groups.shuffle(&mut rng);
+                let new_uris: Vec<String> = groups.into_iter().flatten().collect();
+
+                client.delete_range(boundary, queue_len).await?;
+                client.add_multi(new_uris, false, None).await?;
+            }
+        }
+        Ok(())
     }
 
     pub async fn send_set_volume(&self, val: i8) -> ClientResult<()> {
