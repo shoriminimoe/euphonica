@@ -16,8 +16,8 @@ use crate::{
     cache::Cache,
     client::{ClientState, Error as ClientError},
     common::{ContentStack, RowEditButtons, Song, SongRow},
-    player::controller::SwapDirection,
-    utils::LazyInit,
+    player::controller::{ShuffleMode, SwapDirection},
+    utils::{LazyInit, settings_manager},
     window::EuphonicaWindow,
 };
 
@@ -46,6 +46,8 @@ mod imp {
         pub player_pane: TemplateChild<PlayerPane>,
         #[template_child]
         pub consume: TemplateChild<gtk::ToggleButton>,
+        #[template_child]
+        pub shuffle_btn: TemplateChild<adw::SplitButton>,
         #[template_child]
         pub clear_queue: TemplateChild<gtk::Button>,
 
@@ -154,9 +156,28 @@ mod imp {
                 ))
                 .build();
 
+            let queue_state = settings_manager().child("state").child("queueview");
+            let action_shuffle_mode = gio::ActionEntry::builder("shuffle-mode")
+                .parameter_type(Some(&String::static_variant_type()))
+                .state(queue_state.string("shuffle-mode").to_string().into())
+                .activate(clone!(
+                    #[strong]
+                    queue_state,
+                    move |_, action, param| {
+                        let nick = param
+                            .expect("Could not get shuffle-mode parameter.")
+                            .get::<String>()
+                            .expect("shuffle-mode target must be a string.");
+                        if queue_state.set_string("shuffle-mode", &nick).is_ok() {
+                            action.set_state(&nick.to_variant());
+                        }
+                    }
+                ))
+                .build();
+
             // Create a new action group and add actions to it
             let actions = gio::SimpleActionGroup::new();
-            actions.add_action_entries([action_clear_rating]);
+            actions.add_action_entries([action_clear_rating, action_shuffle_mode]);
             self.obj().insert_action_group("queue-view", Some(&actions));
         }
 
@@ -405,6 +426,7 @@ impl QueueView {
         let queue_title = self.imp().queue_title.get();
         let clear_queue_btn = self.imp().clear_queue.get();
         let consume = self.imp().consume.get();
+        let shuffle_btn = self.imp().shuffle_btn.get();
         let save = self.imp().save.get();
         let save_name = self.imp().save_name.get();
         let save_confirm = self.imp().save_confirm.get();
@@ -413,6 +435,59 @@ impl QueueView {
             .transform_to(|_, size: u32| Some(size > 0))
             .sync_create()
             .build();
+
+        player_queue
+            .bind_property("n-items", &shuffle_btn, "sensitive")
+            .transform_to(|_, size: u32| Some(size > 0))
+            .sync_create()
+            .build();
+
+        let queue_state = settings_manager().child("state").child("queueview");
+        fn shuffle_tooltip(mode: &str) -> &'static str {
+            // TODO: l10n
+            match mode {
+                "album" => "Shuffle queue \u{00b7} by album",
+                _ => "Shuffle queue \u{00b7} tracks",
+            }
+        }
+        shuffle_btn.set_tooltip_text(Some(shuffle_tooltip(
+            queue_state.string("shuffle-mode").as_str(),
+        )));
+        queue_state.connect_changed(
+            Some("shuffle-mode"),
+            clone!(
+                #[weak]
+                shuffle_btn,
+                move |state, _| {
+                    shuffle_btn.set_tooltip_text(Some(shuffle_tooltip(
+                        state.string("shuffle-mode").as_str(),
+                    )));
+                }
+            ),
+        );
+
+        shuffle_btn.connect_clicked(clone!(
+            #[weak]
+            player,
+            #[strong]
+            queue_state,
+            move |btn| {
+                let mode = ShuffleMode::from_str(queue_state.string("shuffle-mode").as_str());
+                glib::spawn_future_local(clone!(
+                    #[weak]
+                    player,
+                    #[weak]
+                    btn,
+                    async move {
+                        btn.set_sensitive(false);
+                        if let Err(e) = player.shuffle_queue(mode).await {
+                            dbg!(e);
+                        }
+                        btn.set_sensitive(true);
+                    }
+                ));
+            }
+        ));
 
         player_queue
             .bind_property("n-items", &queue_title, "subtitle")
