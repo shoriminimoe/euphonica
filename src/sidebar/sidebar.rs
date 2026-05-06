@@ -24,6 +24,8 @@ mod imp {
         #[template_child]
         pub artists_btn: TemplateChild<SidebarButton>,
         #[template_child]
+        pub album_artists_btn: TemplateChild<SidebarButton>,
+        #[template_child]
         pub genres_btn: TemplateChild<SidebarButton>,
         #[template_child]
         pub folders_btn: TemplateChild<SidebarButton>,
@@ -155,6 +157,16 @@ impl Sidebar {
             move |btn| {
                 if btn.is_active() {
                     stack.set_visible_child_name("artists");
+                }
+            }
+        ));
+
+        self.imp().album_artists_btn.connect_toggled(clone!(
+            #[weak]
+            stack,
+            move |btn| {
+                if btn.is_active() {
+                    stack.set_visible_child_name("album_artists");
                 }
             }
         ));
@@ -420,6 +432,7 @@ impl Sidebar {
             &self.imp().recent_btn.get(),
             &self.imp().albums_btn.get(),
             &self.imp().artists_btn.get(),
+            &self.imp().album_artists_btn.get(),
             &self.imp().genres_btn.get(),
             &self.imp().folders_btn.get(),
             &self.imp().playlists_btn.get(),
@@ -446,6 +459,7 @@ impl Sidebar {
         match view_name {
             "albums" => self.imp().albums_btn.set_active(true),
             "artists" => self.imp().artists_btn.set_active(true),
+            "album_artists" => self.imp().album_artists_btn.set_active(true),
             "genres" => self.imp().genres_btn.set_active(true),
             "queue" => self.imp().queue_btn.set_active(true),
             "playlists" => self.imp().playlists_btn.set_active(true),
