@@ -170,106 +170,98 @@ mod imp {
     #[properties(wrapper_type = super::EuphonicaWindow)]
     #[template(resource = "/io/github/htkhiem/Euphonica/window.ui")]
     pub struct EuphonicaWindow {
-        // Top level widgets
-        #[template_child]
+        // Top level widgets,
+        #[template_child],
         pub split_view: TemplateChild<adw::OverlaySplitView>,
-        #[template_child]
+        #[template_child],
         pub content: TemplateChild<gtk::Box>,
-        #[template_child]
+        #[template_child],
         pub toast_overlay: TemplateChild<adw::ToastOverlay>,
-        // Main views
-        #[template_child]
+        // Main views,
+        #[template_child],
         pub recent_view: TemplateChild<RecentView>,
-        #[template_child]
+        #[template_child],
         pub album_view: TemplateChild<AlbumView>,
-        #[template_child]
+        #[template_child],
         pub artist_view: TemplateChild<ArtistView>,
-        #[template_child]
+        #[template_child],
         pub genre_view: TemplateChild<GenreView>,
-        #[template_child]
+        #[template_child],
         pub folder_view: TemplateChild<FolderView>,
-        #[template_child]
+        #[template_child],
         pub dyn_playlist_view: TemplateChild<DynamicPlaylistView>,
-        #[template_child]
+        #[template_child],
         pub playlist_view: TemplateChild<PlaylistView>,
-        #[template_child]
+        #[template_child],
         pub queue_view: TemplateChild<QueueView>,
-
-        #[template_child]
+        #[template_child],
         pub menu_btn: TemplateChild<gtk::MenuButton>,
-
-        // Content view stack
-        #[template_child]
+        // Content view stack,
+        #[template_child],
         pub stack: TemplateChild<gtk::Stack>,
-        // Sidebar
-        #[template_child]
+        // Sidebar,
+        #[template_child],
         pub pending_tasks_btn: TemplateChild<gtk::MenuButton>,
-        #[template_child]
+        #[template_child],
         pub pending_fg_stack: TemplateChild<gtk::Stack>,
-        #[template_child]
+        #[template_child],
         pub fg_progress: TemplateChild<gtk::ProgressBar>,
-        #[template_child]
+        #[template_child],
         pub fg_task_count: TemplateChild<gtk::Label>,
-        #[template_child]
+        #[template_child],
         pub pending_bg_stack: TemplateChild<gtk::Stack>,
-        #[template_child]
+        #[template_child],
         pub bg_progress: TemplateChild<gtk::ProgressBar>,
-        #[template_child]
+        #[template_child],
         pub bg_task_count: TemplateChild<gtk::Label>,
-
-        #[template_child]
+        #[template_child],
         pub title: TemplateChild<adw::WindowTitle>,
-        #[template_child]
+        #[template_child],
         pub sidebar: TemplateChild<Sidebar>,
-
-        // Bottom bar
-        #[template_child]
+        // Bottom bar,
+        #[template_child],
         pub player_bar_revealer: TemplateChild<gtk::Revealer>,
-        #[template_child]
+        #[template_child],
         pub player_bar: TemplateChild<PlayerBar>,
-
-        // Blurred album art background
-        #[property(get, set)]
+        // Blurred album art background,
+        #[property(get, set)],
         pub use_album_art_bg: Cell<bool>,
-        #[property(get, set)]
+        #[property(get, set)],
         pub bg_opacity: Cell<f64>,
         pub bg_paintable: FadePaintable,
         pub player: WeakRef<Player>,
-        pub sender_to_bg: OnceCell<Sender<WindowMessage>>, // sending a None will terminate the thread
+        pub sender_to_bg: OnceCell<Sender<WindowMessage>>,
+    // sending a None will terminate the thread,
         pub bg_handle: RefCell<Option<gio::JoinHandle<()>>>,
         pub prev_size: Cell<(u32, u32)>,
-
-        // Visualiser on the bottom edge
-        #[property(get, set)]
+        // Visualiser on the bottom edge,
+        #[property(get, set)],
         pub use_visualizer: Cell<bool>,
-        #[property(get, set)]
+        #[property(get, set)],
         pub visualizer_top_opacity: Cell<f64>,
-        #[property(get, set)]
+        #[property(get, set)],
         pub visualizer_bottom_opacity: Cell<f64>,
-        #[property(get, set)]
+        #[property(get, set)],
         pub visualizer_scale: Cell<f64>,
-        #[property(get, set)]
+        #[property(get, set)],
         pub visualizer_use_splines: Cell<bool>,
-        #[property(get, set)]
+        #[property(get, set)],
         pub visualizer_stroke_width: Cell<f64>,
-        #[property(get, set)]
+        #[property(get, set)],
         pub visualizer_use_cairo: Cell<bool>,
-        #[property(get, set = Self::set_auto_accent)]
+        #[property(get, set = Self::set_auto_accent)],
         pub auto_accent: Cell<bool>,
         pub tick_callback: RefCell<Option<gtk::TickCallbackId>>,
         pub fft_data: OnceCell<Arc<Mutex<(Vec<f32>, Vec<f32>)>>>,
         pub accent_color: RefCell<Option<RGB>>,
         pub should_populate_visible: Cell<bool>,
-
         pub provider: CssProvider,
         pub client_state: OnceCell<ClientState>,
-
-        // FPS tracking (debug)
+        // FPS tracking (debug),
         pub fps_frame_count: Cell<u64>,
         pub fps_last_time: Cell<Option<std::time::Instant>>,
         pub fps_tick_id: RefCell<Option<gtk::TickCallbackId>>,
-
-        // Signal handler IDs for disconnect on dispose
+        // Signal handler IDs for disconnect on dispose,
         pub settings_bg_blur_id: RefCell<Option<SignalHandlerId>>,
         pub settings_visualizer_id: RefCell<Option<SignalHandlerId>>,
         pub client_state_idle_id: RefCell<Option<SignalHandlerId>>,
@@ -279,6 +271,49 @@ mod imp {
         pub client_state_pct_bg_id: RefCell<Option<SignalHandlerId>>,
         pub client_state_n_fg_id: RefCell<Option<SignalHandlerId>>,
         pub client_state_n_bg_id: RefCell<Option<SignalHandlerId>>,
+        // Top level widgets,
+        #[template_child],
+        #[template_child],
+        #[template_child],
+        // Main views,
+        #[template_child],
+        #[template_child],
+        #[template_child],
+        #[template_child],
+        pub album_artist_view: TemplateChild<ArtistView>,
+        #[template_child],
+        #[template_child],
+        #[template_child],
+        #[template_child],
+        #[template_child],
+        #[template_child],
+        // Content view stack,
+        #[template_child],
+        // Sidebar,
+        #[template_child],
+        #[template_child],
+        #[template_child],
+        #[template_child],
+        #[template_child],
+        #[template_child],
+        #[template_child],
+        #[template_child],
+        #[template_child],
+        // Bottom bar,
+        #[template_child],
+        #[template_child],
+        // Blurred album art background,
+        #[property(get, set)],
+        #[property(get, set)],
+    // sending a None will terminate the thread,
+        // Visualiser on the bottom edge,
+        #[property(get, set)],
+        #[property(get, set)],
+        #[property(get, set)],
+        #[property(get, set)],
+        #[property(get, set)],
+        #[property(get, set)],
+        #[property(get, set)],
     }
 
     #[glib::object_subclass]
@@ -509,6 +544,7 @@ mod imp {
                 self.recent_view.upcast_ref::<gtk::Widget>(),
                 self.album_view.upcast_ref::<gtk::Widget>(),
                 self.artist_view.upcast_ref::<gtk::Widget>(),
+                self.album_artist_view.upcast_ref::<gtk::Widget>(),
                 self.genre_view.upcast_ref::<gtk::Widget>(),
                 self.folder_view.upcast_ref::<gtk::Widget>(),
                 self.playlist_view.upcast_ref::<gtk::Widget>(),
@@ -1268,6 +1304,9 @@ impl EuphonicaWindow {
             .artist_view
             .setup(app.get_library(), app.get_cache(), &win, ArtistKind::Artist);
         win.imp()
+            .album_artist_view
+            .setup(app.get_library(), app.get_cache(), &win, ArtistKind::AlbumArtist);
+        win.imp()
             .genre_view
             .setup(app.get_library(), app.get_cache());
         win.imp()
@@ -1389,6 +1428,18 @@ impl EuphonicaWindow {
         );
 
         win.imp().artist_view.get_content_view().connect_closure(
+            "album-clicked",
+            false,
+            closure_local!(
+                #[watch(rename_to = this)]
+                win,
+                move |_: ArtistContentView, album: Album| {
+                    this.goto_album(&album);
+                }
+            ),
+        );
+
+        win.imp().album_artist_view.get_content_view().connect_closure(
             "album-clicked",
             false,
             closure_local!(
@@ -1575,6 +1626,9 @@ impl EuphonicaWindow {
                 "artists" => {
                     imp.artist_view.populate();
                 }
+                "album_artists" => {
+                    imp.album_artist_view.populate();
+                }
                 "genres" => {
                     imp.genre_view.populate();
                 }
@@ -1664,44 +1718,44 @@ impl EuphonicaWindow {
     /// Set blurred background to a new image, if enabled. Use thumbnail version to
     /// minimise disk read time.
     fn queue_new_background(&self) {
-    if let Some(player) = self.imp().player.upgrade() {
-        if let Some(sender) = self.imp().sender_to_bg.get() {
-            glib::spawn_future_local(clone!(
-                #[weak(rename_to = this)]
-                self,
-                #[weak]
-                player,
-                #[strong]
-                sender,
-                #[upgrade_or]
-                ClientResult::Ok(()),
-                async move {
-                    if let Some(path) = player
-                        .current_song_cover_path(true)
-                        .await?
-                        .and_then(|path| if path.exists() { Some(path) } else { None })
-                    {
-                        let settings = settings_manager().child("ui");
-                        let config = BlurConfig {
-                            width: this.width() as u32,
-                            height: this.height() as u32,
-                            radius: settings.uint("bg-blur-radius"),
-                            is_dark: adw::StyleManager::default().is_dark(),
-                            fade: true, // new image, must fade
-                        };
-                        let _ =
-                            sender.send_blocking(WindowMessage::NewBackground(path, config));
-                    } else {
-                        let _ = sender.send_blocking(WindowMessage::ClearBackground);
-                        this.imp().push_tex(None, true);
-                    }
-                    Ok(())
+if let Some(player) = self.imp().player.upgrade() {
+    if let Some(sender) = self.imp().sender_to_bg.get() {
+        glib::spawn_future_local(clone!(
+            #[weak(rename_to = this)]
+            self,
+            #[weak]
+            player,
+            #[strong]
+            sender,
+            #[upgrade_or]
+            ClientResult::Ok(()),
+            async move {
+                if let Some(path) = player
+                    .current_song_cover_path(true)
+                    .await?
+                    .and_then(|path| if path.exists() { Some(path) } else { None })
+                {
+                    let settings = settings_manager().child("ui");
+                    let config = BlurConfig {
+                        width: this.width() as u32,
+                        height: this.height() as u32,
+                        radius: settings.uint("bg-blur-radius"),
+                        is_dark: adw::StyleManager::default().is_dark(),
+                        fade: true, // new image, must fade
+                    };
+                    let _ =
+                        sender.send_blocking(WindowMessage::NewBackground(path, config));
+                } else {
+                    let _ = sender.send_blocking(WindowMessage::ClearBackground);
+                    this.imp().push_tex(None, true);
                 }
-            ));
-        } else {
-            self.imp().push_tex(None, true);
-        }
+                Ok(())
+            }
+        ));
+    } else {
+        self.imp().push_tex(None, true);
     }
+}
 }
 
     fn queue_background_update(&self, fade: bool) {
