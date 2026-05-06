@@ -10,7 +10,7 @@ use std::{
     sync::OnceLock,
 };
 
-use super::{AlbumCell, Library};
+use super::{AlbumCell, ArtistKind, Library};
 use crate::{
     cache::{Cache, CacheState, Error as CacheError, placeholders::EMPTY_ARTIST_STRING},
     common::{Album, Artist, ContentStack, ContentView, RowAddButtons, Song, SongRow},
@@ -95,6 +95,7 @@ mod imp {
         pub cache: OnceCell<Rc<Cache>>,
         #[derivative(Default(value = "Cell::new(true)"))]
         pub selecting_all: Cell<bool>, // Enables queuing all songs from this artist efficiently
+        pub kind: Cell<ArtistKind>,
     }
 
     #[glib::object_subclass]
@@ -667,7 +668,14 @@ impl ArtistContentView {
             .build();
     }
 
-    pub fn setup(&self, library: &Library, cache: Rc<Cache>, window: &EuphonicaWindow) {
+    pub fn setup(
+        &self,
+        library: &Library,
+        cache: Rc<Cache>,
+        window: &EuphonicaWindow,
+        kind: ArtistKind,
+    ) {
+        self.imp().kind.set(kind);
         self.imp()
             .cache
             .set(cache)
@@ -758,6 +766,7 @@ impl ArtistContentView {
         // Save reference to artist object
         self.imp().artist.borrow_mut().replace(artist.clone());
 
+        let kind = self.imp().kind.get();
         glib::spawn_future_local(clone!(
             #[weak(rename_to = this)]
             self,
@@ -774,17 +783,34 @@ impl ArtistContentView {
                 let song_list = this.imp().song_list.clone();
                 song_list.remove_all();
                 // Important, MPD-side content first
-                let _ = library
-                    .get_artist_content(
-                        &artist,
-                        |album| {
-                            album_list.append(&album);
-                        },
-                        |songs| {
-                            song_list.extend_from_slice(&songs);
-                        },
-                    )
-                    .await;
+                let _ = match kind {
+                    ArtistKind::Artist => {
+                        library
+                            .get_artist_content(
+                                &artist,
+                                |album| {
+                                    album_list.append(&album);
+                                },
+                                |songs| {
+                                    song_list.extend_from_slice(&songs);
+                                },
+                            )
+                            .await
+                    }
+                    ArtistKind::AlbumArtist => {
+                        library
+                            .get_album_artist_content(
+                                &artist,
+                                |album| {
+                                    album_list.append(&album);
+                                },
+                                |songs| {
+                                    song_list.extend_from_slice(&songs);
+                                },
+                            )
+                            .await
+                    }
+                };
                 if album_list.n_items() > 0 {
                     album_stack.show_content();
                 } else {

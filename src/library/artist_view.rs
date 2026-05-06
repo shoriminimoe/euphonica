@@ -147,7 +147,7 @@ impl ArtistView {
         self.setup_gridview(cache.clone());
 
         let content_view = self.imp().content_view.get();
-        content_view.setup(library, cache, window);
+        content_view.setup(library, cache, window, self.imp().kind.get());
         self.imp().content_page.connect_hidden(move |_| {
             content_view.unbind();
         });
