@@ -39,6 +39,11 @@
 		<value nick="stop-and-clear" value="3"/>
 	</enum>
 
+	<enum id="io.github.htkhiem.Euphonica.shufflemode">
+		<value nick="tracks" value="0"/>
+		<value nick="album" value="1"/>
+	</enum>
+
 	<schema id="io.github.htkhiem.Euphonica" path="/io/github/htkhiem/Euphonica/">
 		<child schema="io.github.htkhiem.Euphonica.ui" name="ui"/>
 		<child schema="io.github.htkhiem.Euphonica.state" name="state"/>
@@ -444,6 +449,11 @@
 		<key name="sort-direction" enum='io.github.htkhiem.Euphonica.sortdir'>
 			<default>'asc'</default>
 			<summary>Album View sort direction</summary>
+		</key>
+
+		<key name="shuffle-mode" enum="io.github.htkhiem.Euphonica.shufflemode">
+			<default>'tracks'</default>
+			<summary>Last-selected mode for the queue's Shuffle button</summary>
 		</key>
 	</schema>
 </schemalist>
