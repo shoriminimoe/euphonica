@@ -5,7 +5,7 @@ use std::{cell::Cell, cmp::Ordering, rc::Rc, sync::OnceLock};
 
 use glib::{Properties, WeakRef, clone, subclass::Signal};
 
-use super::{ArtistCell, ArtistContentView, Library};
+use super::{ArtistCell, ArtistContentView, ArtistKind, Library};
 use crate::{
     cache::Cache,
     common::{Artist, ContentStack},
@@ -59,7 +59,8 @@ mod imp {
         pub collapsed: Cell<bool>,
 
         pub library: WeakRef<Library>,
-        pub initializing: Cell<bool>
+        pub initializing: Cell<bool>,
+        pub kind: Cell<ArtistKind>,
     }
 
     #[glib::object_subclass]
@@ -132,7 +133,14 @@ impl ArtistView {
         res
     }
 
-    pub fn setup(&self, library: &Library, cache: Rc<Cache>, window: &EuphonicaWindow) {
+    pub fn setup(
+        &self,
+        library: &Library,
+        cache: Rc<Cache>,
+        window: &EuphonicaWindow,
+        kind: ArtistKind,
+    ) {
+        self.imp().kind.set(kind);
         self.imp().library.set(Some(library));
         self.setup_sort();
         self.setup_search();
@@ -319,7 +327,11 @@ impl ArtistView {
         // Refresh upon reconnection.
         // User-initiated refreshes will also trigger a reconnection, which will
         // in turn trigger this.
-        let artists = self.imp().library.upgrade().unwrap().artists();
+        let library = self.imp().library.upgrade().unwrap();
+        let artists = match self.imp().kind.get() {
+            ArtistKind::Artist => library.artists(),
+            ArtistKind::AlbumArtist => library.album_artists(),
+        };
 
         // Setup search bar
         let search_bar = self.imp().search_bar.get();
@@ -432,10 +444,20 @@ impl LazyInit for ArtistView {
                 self.imp().initializing.set(true);
                 let stack = self.imp().stack.get();
                 let this = self.clone();
+                let kind = self.imp().kind.get();
                 stack.show_spinner();
                 glib::spawn_future_local(async move {
-                    let _ = library.init_artists().await;
-                    if library.artists().n_items() > 0 {
+                    let n_items = match kind {
+                        ArtistKind::Artist => {
+                            let _ = library.init_artists().await;
+                            library.artists().n_items()
+                        }
+                        ArtistKind::AlbumArtist => {
+                            let _ = library.init_album_artists().await;
+                            library.album_artists().n_items()
+                        }
+                    };
+                    if n_items > 0 {
                         stack.show_content();
                     } else {
                         stack.show_placeholder();

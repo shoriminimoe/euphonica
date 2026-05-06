@@ -23,7 +23,7 @@ use crate::{
     client::{ClientState, ConnectionState, Result as ClientResult},
     common::{Album, Artist, Genre, INode, ThemeSelector, blend_mode::*, paintables::FadePaintable},
     library::{
-        AlbumView, ArtistContentView, ArtistView, DynamicPlaylistView, FolderView,
+        AlbumView, ArtistContentView, ArtistKind, ArtistView, DynamicPlaylistView, FolderView,
         GenreContentView, GenreView, PlaylistView, RecentView,
     },
     player::{Player, PlayerBar, QueueView},
@@ -955,7 +955,7 @@ impl EuphonicaWindow {
         );
         win.imp()
             .artist_view
-            .setup(app.get_library(), app.get_cache(), &win);
+            .setup(app.get_library(), app.get_cache(), &win, ArtistKind::Artist);
         win.imp()
             .genre_view
             .setup(app.get_library(), app.get_cache());
