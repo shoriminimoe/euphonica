@@ -33,6 +33,22 @@ mod generic_row;
 // The Library controller itself
 mod controller;
 
+/// Distinguishes between the two artist kinds the library exposes:
+/// the per-track Artist tag and the per-album AlbumArtist tag.
+/// Used to parameterize ArtistView and ArtistContentView so the same
+/// widget classes can drive both sidebar entries.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ArtistKind {
+    Artist,
+    AlbumArtist,
+}
+
+impl Default for ArtistKind {
+    fn default() -> Self {
+        ArtistKind::Artist
+    }
+}
+
 pub use recent_view::RecentView;
 
 use album_cell::AlbumCell;
