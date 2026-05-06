@@ -441,7 +441,7 @@ impl LazyInit for ArtistView {
                 let this = self.clone();
                 stack.show_spinner();
                 glib::spawn_future_local(async move {
-                    let _ = library.init_artists(false).await;
+                    let _ = library.init_artists().await;
                     if library.artists().n_items() > 0 {
                         stack.show_content();
                     } else {

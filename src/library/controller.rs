@@ -47,6 +47,9 @@ mod imp {
         pub artists_initialized: Cell<bool>,
         #[derivative(Default(value = "gio::ListStore::new::<Artist>()"))]
         pub recent_artists: gio::ListStore,
+        #[derivative(Default(value = "gio::ListStore::new::<Artist>()"))]
+        pub album_artists: gio::ListStore,
+        pub album_artists_initialized: Cell<bool>,
         #[derivative(Default(value = "gio::ListStore::new::<Genre>()"))]
         pub genres: gio::ListStore,
         pub genres_initialized: Cell<bool>,
@@ -136,6 +139,8 @@ impl Library {
         self.imp().artists.remove_all();
         self.imp().artists_initialized.set(false);
         self.imp().recent_artists.remove_all();
+        self.imp().album_artists.remove_all();
+        self.imp().album_artists_initialized.set(false);
         self.imp().genres.remove_all();
         self.imp().genres_initialized.set(false);
         self.imp().playlists.remove_all();
@@ -453,6 +458,11 @@ impl Library {
         self.imp().recent_artists.clone()
     }
 
+    /// Get a reference to the local album_artists store.
+    pub fn album_artists(&self) -> gio::ListStore {
+        self.imp().album_artists.clone()
+    }
+
     /// Get a reference to the local genres store.
     pub fn genres(&self) -> gio::ListStore {
         self.imp().genres.clone()
@@ -658,14 +668,29 @@ impl Library {
         Ok(())
     }
 
-    pub async fn init_artists(&self, use_album_artist: bool) -> ClientResult<()> {
+    pub async fn init_artists(&self) -> ClientResult<()> {
         if !self.imp().artists_initialized.get() {
             self.imp().artists_initialized.set(true);
             let model = self.imp().artists.clone();
             model.remove_all();
 
             self.client()
-                .get_artists(use_album_artist, &mut |artist| {
+                .get_artists(false, &mut |artist| {
+                    model.append(&artist);
+                })
+                .await?;
+        }
+        Ok(())
+    }
+
+    pub async fn init_album_artists(&self) -> ClientResult<()> {
+        if !self.imp().album_artists_initialized.get() {
+            self.imp().album_artists_initialized.set(true);
+            let model = self.imp().album_artists.clone();
+            model.remove_all();
+
+            self.client()
+                .get_artists(true, &mut |artist| {
                     model.append(&artist);
                 })
                 .await?;
@@ -704,6 +729,54 @@ impl Library {
                 let filtered: Vec<SongInfo> = batch
                     .into_iter()
                     .filter(|s| s.artists.iter().any(|a| a.get_comp_id() == comp_id))
+                    .collect();
+                for song in filtered.iter() {
+                    if let Some(album) = song.album.as_ref()
+                        && visited_albums.insert(album.get_comp_id().to_owned())
+                    {
+                        respond_album(album.clone().into());
+                    }
+                }
+                respond_song(filtered.into_iter().map(|si| si.into()).collect());
+            })
+            .await?;
+
+        Ok(())
+    }
+
+    /// Find all albums + songs whose AlbumArtist matches this artist (after
+    /// post-split comp_id verification). Mirrors `get_artist_content`'s shape
+    /// but uses the AlbumArtist tag for the server-side filter and the
+    /// album's parsed `artists` Vec for the client-side membership check.
+    pub async fn get_album_artist_content<FA, FS>(
+        &self,
+        artist: &Artist,
+        mut respond_album: FA,
+        mut respond_song: FS,
+    ) -> ClientResult<()>
+    where
+        FA: FnMut(Album),
+        FS: FnMut(Vec<Song>),
+    {
+        let mut song_query = Query::new();
+        song_query.and_with_op(
+            Term::Tag(tags::ALBUMARTIST.into()),
+            QueryOperation::Contains,
+            artist.get_name().to_owned(),
+        );
+
+        let comp_id = artist.get_info().get_comp_id();
+        let mut visited_albums = FxHashSet::default();
+        self.client()
+            .get_song_infos_by_query(song_query, true, &mut |batch| {
+                let filtered: Vec<SongInfo> = batch
+                    .into_iter()
+                    .filter(|s| {
+                        s.album
+                            .as_ref()
+                            .map(|a| a.artists.iter().any(|ai| ai.get_comp_id() == comp_id))
+                            .unwrap_or(false)
+                    })
                     .collect();
                 for song in filtered.iter() {
                     if let Some(album) = song.album.as_ref()
