@@ -772,6 +772,16 @@ impl MpdWrapper {
         self.foreground(Task::ClearQueue(s), r).await
     }
 
+    pub async fn shuffle_range(&self, start: u32) -> ClientResult<()> {
+        let (s, r) = oneshot::channel();
+        self.foreground(Task::ShuffleRange(start, s), r).await
+    }
+
+    pub async fn delete_range(&self, start: u32, end: u32) -> ClientResult<()> {
+        let (s, r) = oneshot::channel();
+        self.foreground(Task::DeleteRange(start, end, s), r).await
+    }
+
     pub async fn seek_current_song(&self, position: f64) -> ClientResult<()> {
         let (s, r) = oneshot::channel();
         self.foreground(Task::Seek(position, s), r).await

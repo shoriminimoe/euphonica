@@ -290,6 +290,11 @@ pub enum Task {
     // DeleteAtId(Id, Responder<()>),
     DeleteAtPos(u32, Responder<()>),
     ClearQueue(Responder<()>),
+    /// Shuffle a contiguous range of the queue server-side. `start` is the
+    /// inclusive start position; the range extends to the end of the queue.
+    ShuffleRange(u32, Responder<()>),
+    /// Delete a contiguous range of the queue server-side, [start, end).
+    DeleteRange(u32, u32, Responder<()>),
     Seek(f64, Responder<()>),
     GetQueue(Window, Responder<Vec<SongInfo>>),
     GetQueueChanges(
@@ -996,6 +1001,12 @@ impl Connection {
                         .respond_with_client(|c| c.shift(Id(from_id), &to_pos.to_string()), resp),
                     Task::DeleteAtPos(p, resp) => self.respond_with_client(|c| c.delete(p), resp),
                     Task::ClearQueue(resp) => self.respond_with_client(|c| c.clear(), resp),
+                    Task::ShuffleRange(start, resp) => {
+                        self.respond_with_client(|c| c.shuffle(start..), resp)
+                    }
+                    Task::DeleteRange(start, end, resp) => {
+                        self.respond_with_client(|c| c.delete(start..end), resp)
+                    }
                     Task::Seek(pos, resp) => self.respond_with_client(|c| c.rewind(pos), resp),
                     Task::GetQueue(window, resp) => self.respond_with_client(
                         |c| {
