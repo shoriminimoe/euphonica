@@ -99,6 +99,14 @@
                           </object>
                         </child>
                         <child>
+                          <object class="AdwSplitButton" id="shuffle_btn">
+                            <property name="icon-name">media-playlist-shuffle-symbolic</property>
+                            <property name="tooltip-text" translatable="true">Shuffle queue</property>
+                            <property name="menu-model">shuffle_menu_model</property>
+                            <property name="sensitive">false</property>
+                          </object>
+                        </child>
+                        <child>
                           <object class="GtkButton" id="clear_queue">
                             <property name="icon-name">list-remove-all-symbolic</property>
                             <property name="tooltip-text" translatable="true">Clear the queue</property>
@@ -206,6 +214,20 @@
         <attribute name="label" translatable="true">Clear rating</attribute>
         <attribute name="action">queue-view.clear-rating</attribute>
       </item>
+    </menu>
+    <menu id="shuffle_menu_model">
+      <section>
+        <item>
+          <attribute name="label" translatable="true">Shuffle tracks</attribute>
+          <attribute name="action">queue-view.shuffle-mode</attribute>
+          <attribute name="target">tracks</attribute>
+        </item>
+        <item>
+          <attribute name="label" translatable="true">Shuffle by album</attribute>
+          <attribute name="action">queue-view.shuffle-mode</attribute>
+          <attribute name="target">album</attribute>
+        </item>
+      </section>
     </menu>
   </template>
 </interface>
