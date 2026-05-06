@@ -168,6 +168,8 @@ mod imp {
         #[template_child]
         pub artist_view: TemplateChild<ArtistView>,
         #[template_child]
+        pub album_artist_view: TemplateChild<ArtistView>,
+        #[template_child]
         pub genre_view: TemplateChild<GenreView>,
         #[template_child]
         pub folder_view: TemplateChild<FolderView>,
@@ -433,6 +435,7 @@ mod imp {
                 self.recent_view.upcast_ref::<gtk::Widget>(),
                 self.album_view.upcast_ref::<gtk::Widget>(),
                 self.artist_view.upcast_ref::<gtk::Widget>(),
+                self.album_artist_view.upcast_ref::<gtk::Widget>(),
                 self.genre_view.upcast_ref::<gtk::Widget>(),
                 self.folder_view.upcast_ref::<gtk::Widget>(),
                 self.playlist_view.upcast_ref::<gtk::Widget>(),
@@ -957,6 +960,9 @@ impl EuphonicaWindow {
             .artist_view
             .setup(app.get_library(), app.get_cache(), &win, ArtistKind::Artist);
         win.imp()
+            .album_artist_view
+            .setup(app.get_library(), app.get_cache(), &win, ArtistKind::AlbumArtist);
+        win.imp()
             .genre_view
             .setup(app.get_library(), app.get_cache());
         win.imp()
@@ -1046,6 +1052,18 @@ impl EuphonicaWindow {
         );
 
         win.imp().artist_view.get_content_view().connect_closure(
+            "album-clicked",
+            false,
+            closure_local!(
+                #[watch(rename_to = this)]
+                win,
+                move |_: ArtistContentView, album: Album| {
+                    this.goto_album(&album);
+                }
+            ),
+        );
+
+        win.imp().album_artist_view.get_content_view().connect_closure(
             "album-clicked",
             false,
             closure_local!(
@@ -1230,6 +1248,9 @@ impl EuphonicaWindow {
                     }
                     "artists" => {
                         imp.artist_view.populate();
+                    }
+                    "album_artists" => {
+                        imp.album_artist_view.populate();
                     }
                     "genres" => {
                         imp.genre_view.populate();
