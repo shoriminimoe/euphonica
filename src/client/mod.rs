@@ -3,6 +3,7 @@ use chrono::{DateTime, Duration, Local};
 mod connection;
 mod stream;
 
+pub mod mounts;
 pub mod password;
 pub mod state;
 pub mod wrapper;

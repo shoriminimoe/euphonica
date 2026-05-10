@@ -327,6 +327,8 @@ pub enum Task {
         Option<&'static str>,
         Responder<GroupedValues>,
     ),
+    /// List MPD storage mounts. Returns the mount list as seen by `listmounts`.
+    ListMounts(Responder<Vec<crate::client::mounts::Mount>>),
     Find(Query<'static>, Window, Responder<Vec<SongInfo>>),
     LsInfo(String, Responder<Vec<INodeInfo>>),
     GetPlaylist(
@@ -1030,6 +1032,48 @@ impl Connection {
                     ),
                     Task::List(term, query, groupby, resp) => {
                         self.respond_with_client(|c| c.list(&term, &query, groupby), resp)
+                    }
+                    Task::ListMounts(resp) => {
+                        // listmounts is a tricky command: rust-mpd's Mount
+                        // struct requires both `mount` and `storage` fields,
+                        // but real MPD instances sometimes return entries
+                        // missing `storage` (yielding Proto(NoField)) or
+                        // refuse the command entirely (UnknownCmd/Permission).
+                        // A Proto error mid-parse leaves unread bytes on the
+                        // socket, so subsequent commands fail with cascading
+                        // parse errors. To stay robust, we treat any of these
+                        // as "no mounts known" and force a reconnect on the
+                        // Proto path to scrub the socket clean.
+                        let raw = self
+                            .client
+                            .as_mut()
+                            .map_or(Err(Error::NotConnected), |client| {
+                                client.mounts().map_err(Error::Mpd)
+                            });
+                        let result = match raw {
+                            Ok(mounts) => Ok(mounts
+                                .into_iter()
+                                .map(crate::client::mounts::Mount::from)
+                                .collect::<Vec<_>>()),
+                            Err(Error::Mpd(MpdError::Server(e)))
+                                if matches!(
+                                    e.code,
+                                    MpdErrorCode::UnknownCmd | MpdErrorCode::Permission
+                                ) =>
+                            {
+                                Ok(Vec::new())
+                            }
+                            Err(Error::Mpd(MpdError::Proto(_))) => {
+                                eprintln!(
+                                    "[mounts] listmounts proto-parse failed; reconnecting to scrub socket"
+                                );
+                                let _ = self.disconnect();
+                                let _ = self.connect();
+                                Ok(Vec::new())
+                            }
+                            Err(e) => Err(e),
+                        };
+                        let _ = resp.send(result);
                     }
                     Task::Find(query, window, resp) => self.respond_with_client(
                         |c| {

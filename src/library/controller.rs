@@ -7,6 +7,7 @@ use crate::{
 };
 use chrono::Local;
 use derivative::Derivative;
+use glib::clone;
 use glib::subclass::Signal;
 use gtk::{gio, glib, prelude::*};
 use rustc_hash::FxHashSet;
@@ -129,6 +130,45 @@ impl Library {
     pub fn setup(&self, client: Rc<MpdWrapper>, player: Player) {
         let _ = self.imp().client.set(client);
         let _ = self.imp().player.set(player);
+
+        let library_settings = settings_manager().child("library");
+        library_settings.connect_changed(
+            Some("dedup-albums"),
+            clone!(
+                #[weak(rename_to = this)]
+                self,
+                move |_, _| {
+                    this.clear_dedup_dependent_initialized();
+                }
+            ),
+        );
+        library_settings.connect_changed(
+            Some("mount-priority"),
+            clone!(
+                #[weak(rename_to = this)]
+                self,
+                move |_, _| {
+                    if let Some(client) = this.imp().client.get() {
+                        client.reload_mount_priority();
+                    }
+                    this.clear_dedup_dependent_initialized();
+                }
+            ),
+        );
+    }
+
+    /// Clear initialization flags for all views whose contents depend on
+    /// dedup output. Next navigation to those views will re-fetch from MPD
+    /// through the (now dedup-aware) wrapper.
+    pub fn clear_dedup_dependent_initialized(&self) {
+        let imp = self.imp();
+        imp.albums_initialized.set(false);
+        imp.recent_initialized.set(false);
+        imp.albums.remove_all();
+        imp.recent_albums.remove_all();
+        // ArtistContentView routes through get_artist_content; that method
+        // now applies dedup directly without caching through an init flag,
+        // so re-init happens naturally on the next artist navigation.
     }
 
     pub fn clear(&self) {
@@ -169,9 +209,64 @@ impl Library {
     where
         F: FnMut(Vec<Song>),
     {
+        // Dedup-aware: when dedup is on OR the Album has alternates, return
+        // only songs whose URI is under the canonical copy's folder. We do
+        // this client-side (URI prefix match) rather than via MPD's `base`
+        // filter — that filter rejects mount-prefixed paths on some MPD
+        // setups with NoExist errors.
+        let dedup_on = settings_manager()
+            .child("library")
+            .boolean("dedup-albums");
+        let folder = if dedup_on || album.has_alternates() {
+            let f = album.get_folder_uri().to_owned();
+            if f.is_empty() { None } else { Some(f) }
+        } else {
+            None
+        };
+        self.fetch_album_songs_filtered(album, folder.as_deref(), respond)
+            .await
+    }
+
+    /// Like `get_album_songs` but constrained to a specific folder URI.
+    /// Used by AlbumContentView when the user picks a non-canonical copy.
+    pub async fn get_album_songs_at<F>(
+        &self,
+        album: &Album,
+        folder_uri: &str,
+        respond: &mut F,
+    ) -> ClientResult<()>
+    where
+        F: FnMut(Vec<Song>),
+    {
+        let scope = if folder_uri.is_empty() { None } else { Some(folder_uri) };
+        self.fetch_album_songs_filtered(album, scope, respond).await
+    }
+
+    /// Issue a `find` for the album by (album, albumartist) and, if `folder`
+    /// is set, drop songs whose URI does not live under that folder.
+    ///
+    /// We deliberately do NOT use MUSICBRAINZ_ALBUMID for the server-side
+    /// query when a folder filter is present: duplicate copies across mounts
+    /// often have inconsistent MBID tagging, and an MBID-only query can omit
+    /// the very copy we want to surface. Falling back to (album, albumartist)
+    /// returns every copy, and the client-side prefix filter narrows to the
+    /// canonical's folder.
+    async fn fetch_album_songs_filtered<F>(
+        &self,
+        album: &Album,
+        folder: Option<&str>,
+        respond: &mut F,
+    ) -> ClientResult<()>
+    where
+        F: FnMut(Vec<Song>),
+    {
         let mut query = Query::new();
-        // Prefer MBID, then album title plus optional albumartist tag.
-        if let Some(mbid) = album.get_mbid() {
+        if folder.is_some() {
+            query.and(Term::Tag(tags::ALBUM.into()), album.get_title().to_owned());
+            if let Some(albumartist) = album.get_artist_tag() {
+                query.and(Term::Tag(tags::ALBUMARTIST.into()), albumartist.to_owned());
+            }
+        } else if let Some(mbid) = album.get_mbid() {
             query.and(Term::Tag(tags::ALBUM_MBID.into()), mbid.to_owned());
         } else {
             query.and(Term::Tag(tags::ALBUM.into()), album.get_title().to_owned());
@@ -179,7 +274,74 @@ impl Library {
                 query.and(Term::Tag(tags::ALBUMARTIST.into()), albumartist.to_owned());
             }
         }
-        self.client().get_songs_by_query(query, true, respond).await
+        eprintln!(
+            "[dedup] fetch_album_songs title={:?} mbid={:?} folder={:?}",
+            album.get_title(),
+            album.get_mbid(),
+            folder,
+        );
+        match folder {
+            Some(f) => {
+                // Folder URIs occasionally arrive with a trailing slash;
+                // normalize so the prefix-match works either way.
+                let folder_clean = f.trim_end_matches('/').to_owned();
+                let prefix = format!("{folder_clean}/");
+                let mut buffered: Vec<Song> = Vec::new();
+                let mut total = 0usize;
+                let mut sample: Option<String> = None;
+                let res = self.client()
+                    .get_songs_by_query(query.clone(), true, &mut |songs| {
+                        total += songs.len();
+                        if sample.is_none() {
+                            if let Some(first) = songs.first() {
+                                sample = Some(first.get_uri().to_owned());
+                            }
+                        }
+                        for s in songs.into_iter() {
+                            if s.get_uri().starts_with(&prefix) {
+                                buffered.push(s);
+                            }
+                        }
+                    })
+                    .await;
+                eprintln!(
+                    "[dedup]   prefix={:?} total_returned={} kept={} sample_uri={:?}",
+                    prefix, total, buffered.len(), sample
+                );
+                res?;
+                if !buffered.is_empty() {
+                    respond(buffered);
+                    return Ok(());
+                }
+                if total == 0 {
+                    return Ok(());
+                }
+                // Prefix match returned nothing despite MPD returning songs.
+                // The canonical folder URI's spelling differs from the URIs
+                // MPD's MBID-based lookup yielded (e.g. apostrophe encoding
+                // mismatch). Fall back to mount-level filtering: keep songs
+                // whose first path component matches the canonical's.
+                if let Some(mount) = folder_clean.split('/').next().filter(|s| !s.is_empty()) {
+                    let mp = format!("{mount}/");
+                    eprintln!("[dedup]   prefix-match empty; falling back to mount={mp:?}");
+                    let mut respond = respond;
+                    self.client()
+                        .get_songs_by_query(query, true, &mut |songs| {
+                            let kept: Vec<Song> = songs
+                                .into_iter()
+                                .filter(|s| s.get_uri().starts_with(&mp))
+                                .collect();
+                            if !kept.is_empty() {
+                                respond(kept);
+                            }
+                        })
+                        .await
+                } else {
+                    Ok(())
+                }
+            }
+            None => self.client().get_songs_by_query(query, true, respond).await,
+        }
     }
 
     /// Queue specific songs
@@ -237,15 +399,35 @@ impl Library {
         if replace {
             client.clear_queue().await?;
         }
-        let mut query = Query::new();
-        query.and(Term::Tag(tags::ALBUM.into()), album.get_title().to_owned());
-        if let Some(artist) = album.get_artist_tag() {
-            query.and(Term::Tag(tags::ALBUMARTIST.into()), artist.to_owned());
+        let dedup_on = settings_manager()
+            .child("library")
+            .boolean("dedup-albums");
+        let needs_folder_scope = dedup_on || album.has_alternates();
+
+        if needs_folder_scope && !album.get_folder_uri().is_empty() {
+            // Dedup-aware: fetch songs by tag filter, then drop everything
+            // outside the canonical copy's folder client-side, then queue the
+            // surviving URIs. Avoids MPD's `base` filter, which on some setups
+            // rejects mount-prefixed paths with NoExist.
+            let mut uris: Vec<String> = Vec::new();
+            self.fetch_album_songs_filtered(&album, Some(album.get_folder_uri()), &mut |songs| {
+                for s in songs {
+                    uris.push(s.get_uri().to_owned());
+                }
+            })
+            .await?;
+            client.add_multi(uris, false, None).await?;
+        } else {
+            let mut query = Query::new();
+            query.and(Term::Tag(tags::ALBUM.into()), album.get_title().to_owned());
+            if let Some(artist) = album.get_artist_tag() {
+                query.and(Term::Tag(tags::ALBUMARTIST.into()), artist.to_owned());
+            }
+            if let Some(mbid) = album.get_mbid() {
+                query.and(Term::Tag(tags::ALBUM_MBID.into()), mbid.to_owned());
+            }
+            client.find_add(query).await?;
         }
-        if let Some(mbid) = album.get_mbid() {
-            query.and(Term::Tag(tags::ALBUM_MBID.into()), mbid.to_owned());
-        }
-        client.find_add(query).await?;
         if play {
             client.play_at(play_from.unwrap_or(0), false).await?;
         }
@@ -722,7 +904,38 @@ impl Library {
             artist.get_name().to_owned(),
         );
 
-        let comp_id = artist.get_info().get_comp_id();
+        let comp_id = artist.get_info().get_comp_id().to_owned();
+        let dedup_on = settings_manager()
+            .child("library")
+            .boolean("dedup-albums");
+
+        if dedup_on {
+            let mut all_songs: Vec<SongInfo> = Vec::new();
+            {
+                let comp_id = comp_id.clone();
+                self.client()
+                    .get_song_infos_by_query(song_query, true, &mut |batch| {
+                        for s in batch.into_iter() {
+                            if s.artists.iter().any(|a| a.get_comp_id() == comp_id) {
+                                all_songs.push(s);
+                            }
+                        }
+                    })
+                    .await?;
+            }
+
+            let songs_emit: Vec<Song> =
+                all_songs.iter().cloned().map(Into::into).collect();
+            let infos = self.client().dedup_album_infos_from_songs(all_songs);
+            for info in infos {
+                respond_album(info.into());
+            }
+            if !songs_emit.is_empty() {
+                respond_song(songs_emit);
+            }
+            return Ok(());
+        }
+
         let mut visited_albums = FxHashSet::default();
         self.client()
             .get_song_infos_by_query(song_query, true, &mut |batch| {
@@ -765,7 +978,43 @@ impl Library {
             artist.get_name().to_owned(),
         );
 
-        let comp_id = artist.get_info().get_comp_id();
+        let comp_id = artist.get_info().get_comp_id().to_owned();
+        let dedup_on = settings_manager()
+            .child("library")
+            .boolean("dedup-albums");
+
+        if dedup_on {
+            let mut all_songs: Vec<SongInfo> = Vec::new();
+            {
+                let comp_id = comp_id.clone();
+                self.client()
+                    .get_song_infos_by_query(song_query, true, &mut |batch| {
+                        for s in batch.into_iter() {
+                            let keep = s
+                                .album
+                                .as_ref()
+                                .map(|a| a.artists.iter().any(|ai| ai.get_comp_id() == comp_id))
+                                .unwrap_or(false);
+                            if keep {
+                                all_songs.push(s);
+                            }
+                        }
+                    })
+                    .await?;
+            }
+
+            let songs_emit: Vec<Song> =
+                all_songs.iter().cloned().map(Into::into).collect();
+            let infos = self.client().dedup_album_infos_from_songs(all_songs);
+            for info in infos {
+                respond_album(info.into());
+            }
+            if !songs_emit.is_empty() {
+                respond_song(songs_emit);
+            }
+            return Ok(());
+        }
+
         let mut visited_albums = FxHashSet::default();
         self.client()
             .get_song_infos_by_query(song_query, true, &mut |batch| {

@@ -19,7 +19,7 @@ pub mod sticker;
 pub mod tags;
 pub mod theme_selector;
 
-pub use album::{Album, AlbumInfo};
+pub use album::{Album, AlbumCopy, AlbumInfo};
 pub use artist::{Artist, ArtistInfo, artists_to_string, parse_mb_artist_tag};
 pub use genre::{Genre, parse_genre_tag, parse_genre_values};
 pub use content_stack::ContentStack;

@@ -250,6 +250,18 @@
               <object class="GtkBox" id="action_btns">
                 <property name="spacing">6</property>
                 <child>
+                  <object class="GtkMenuButton" id="source_button">
+                    <property name="visible">false</property>
+                    <property name="tooltip-text" translatable="yes">Switch between copies of this album</property>
+                    <child>
+                      <object class="AdwButtonContent" id="source_button_content">
+                        <property name="icon-name">drive-harddisk-symbolic</property>
+                        <property name="label" translatable="no"></property>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+                <child>
                   <object class="GtkButton" id="replace_queue">
                     <property name="tooltip-text" translatable="true">Replace the queue with the selected songs</property>
                     <child>

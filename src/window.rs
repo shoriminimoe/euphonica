@@ -134,7 +134,7 @@ fn get_dominant_color(img: &DynamicImage, is_dark: bool) -> RGB {
         }
     }
 
-    let mut dominant = dominant.unwrap();
+    let dominant = dominant.unwrap();
 
     // Convert to HSL for luminance adjustment
     if suboptimal_luminance {
@@ -171,62 +171,64 @@ mod imp {
     #[template(resource = "/io/github/htkhiem/Euphonica/window.ui")]
     pub struct EuphonicaWindow {
         // Top level widgets,
-        #[template_child],
+        #[template_child]
         pub split_view: TemplateChild<adw::OverlaySplitView>,
-        #[template_child],
+        #[template_child]
         pub content: TemplateChild<gtk::Box>,
-        #[template_child],
+        #[template_child]
         pub toast_overlay: TemplateChild<adw::ToastOverlay>,
         // Main views,
-        #[template_child],
+        #[template_child]
         pub recent_view: TemplateChild<RecentView>,
-        #[template_child],
+        #[template_child]
         pub album_view: TemplateChild<AlbumView>,
-        #[template_child],
+        #[template_child]
         pub artist_view: TemplateChild<ArtistView>,
-        #[template_child],
+        #[template_child]
+        pub album_artist_view: TemplateChild<ArtistView>,
+        #[template_child]
         pub genre_view: TemplateChild<GenreView>,
-        #[template_child],
+        #[template_child]
         pub folder_view: TemplateChild<FolderView>,
-        #[template_child],
+        #[template_child]
         pub dyn_playlist_view: TemplateChild<DynamicPlaylistView>,
-        #[template_child],
+        #[template_child]
         pub playlist_view: TemplateChild<PlaylistView>,
-        #[template_child],
+        #[template_child]
         pub queue_view: TemplateChild<QueueView>,
-        #[template_child],
+        #[template_child]
         pub menu_btn: TemplateChild<gtk::MenuButton>,
         // Content view stack,
-        #[template_child],
+        #[template_child]
         pub stack: TemplateChild<gtk::Stack>,
         // Sidebar,
-        #[template_child],
+        #[template_child]
         pub pending_tasks_btn: TemplateChild<gtk::MenuButton>,
-        #[template_child],
+        #[template_child]
         pub pending_fg_stack: TemplateChild<gtk::Stack>,
-        #[template_child],
+        #[template_child]
         pub fg_progress: TemplateChild<gtk::ProgressBar>,
-        #[template_child],
+        #[template_child]
         pub fg_task_count: TemplateChild<gtk::Label>,
-        #[template_child],
+        #[template_child]
         pub pending_bg_stack: TemplateChild<gtk::Stack>,
-        #[template_child],
+        #[template_child]
         pub bg_progress: TemplateChild<gtk::ProgressBar>,
-        #[template_child],
+        #[template_child]
         pub bg_task_count: TemplateChild<gtk::Label>,
-        #[template_child],
+        #[template_child]
         pub title: TemplateChild<adw::WindowTitle>,
-        #[template_child],
+        #[template_child]
         pub sidebar: TemplateChild<Sidebar>,
         // Bottom bar,
-        #[template_child],
+        #[template_child]
         pub player_bar_revealer: TemplateChild<gtk::Revealer>,
-        #[template_child],
+        #[template_child]
         pub player_bar: TemplateChild<PlayerBar>,
         // Blurred album art background,
-        #[property(get, set)],
+        #[property(get, set)]
         pub use_album_art_bg: Cell<bool>,
-        #[property(get, set)],
+        #[property(get, set)]
         pub bg_opacity: Cell<f64>,
         pub bg_paintable: FadePaintable,
         pub player: WeakRef<Player>,
@@ -235,21 +237,21 @@ mod imp {
         pub bg_handle: RefCell<Option<gio::JoinHandle<()>>>,
         pub prev_size: Cell<(u32, u32)>,
         // Visualiser on the bottom edge,
-        #[property(get, set)],
+        #[property(get, set)]
         pub use_visualizer: Cell<bool>,
-        #[property(get, set)],
+        #[property(get, set)]
         pub visualizer_top_opacity: Cell<f64>,
-        #[property(get, set)],
+        #[property(get, set)]
         pub visualizer_bottom_opacity: Cell<f64>,
-        #[property(get, set)],
+        #[property(get, set)]
         pub visualizer_scale: Cell<f64>,
-        #[property(get, set)],
+        #[property(get, set)]
         pub visualizer_use_splines: Cell<bool>,
-        #[property(get, set)],
+        #[property(get, set)]
         pub visualizer_stroke_width: Cell<f64>,
-        #[property(get, set)],
+        #[property(get, set)]
         pub visualizer_use_cairo: Cell<bool>,
-        #[property(get, set = Self::set_auto_accent)],
+        #[property(get, set = Self::set_auto_accent)]
         pub auto_accent: Cell<bool>,
         pub tick_callback: RefCell<Option<gtk::TickCallbackId>>,
         pub fft_data: OnceCell<Arc<Mutex<(Vec<f32>, Vec<f32>)>>>,
@@ -271,49 +273,6 @@ mod imp {
         pub client_state_pct_bg_id: RefCell<Option<SignalHandlerId>>,
         pub client_state_n_fg_id: RefCell<Option<SignalHandlerId>>,
         pub client_state_n_bg_id: RefCell<Option<SignalHandlerId>>,
-        // Top level widgets,
-        #[template_child],
-        #[template_child],
-        #[template_child],
-        // Main views,
-        #[template_child],
-        #[template_child],
-        #[template_child],
-        #[template_child],
-        pub album_artist_view: TemplateChild<ArtistView>,
-        #[template_child],
-        #[template_child],
-        #[template_child],
-        #[template_child],
-        #[template_child],
-        #[template_child],
-        // Content view stack,
-        #[template_child],
-        // Sidebar,
-        #[template_child],
-        #[template_child],
-        #[template_child],
-        #[template_child],
-        #[template_child],
-        #[template_child],
-        #[template_child],
-        #[template_child],
-        #[template_child],
-        // Bottom bar,
-        #[template_child],
-        #[template_child],
-        // Blurred album art background,
-        #[property(get, set)],
-        #[property(get, set)],
-    // sending a None will terminate the thread,
-        // Visualiser on the bottom edge,
-        #[property(get, set)],
-        #[property(get, set)],
-        #[property(get, set)],
-        #[property(get, set)],
-        #[property(get, set)],
-        #[property(get, set)],
-        #[property(get, set)],
     }
 
     #[glib::object_subclass]
@@ -1032,7 +991,7 @@ mod imp {
         fn cairo_trace_spectrum_top(
             cr: &cairo::Context,
             band_width: f64,
-            height: f64, // STILL WINDOW HEIGHT
+            _height: f64, // STILL WINDOW HEIGHT
             ys: &[f64],
             use_splines: bool,
         ) {

@@ -13,7 +13,7 @@ use crate::{
 use adw::subclass::prelude::*;
 use ashpd::desktop::file_chooser::SelectedFiles;
 use derivative::Derivative;
-use gio::{ActionEntry, Menu, SimpleActionGroup};
+use gio::{ActionEntry, Menu, MenuItem, SimpleActionGroup};
 use glib::{Binding, WeakRef, clone, closure_local, signal::SignalHandlerId};
 use gtk::{
     BitsetIter, CompositeTemplate, ListItem, SignalListItemFactory, gdk, gio, glib, prelude::*,
@@ -62,6 +62,12 @@ mod imp {
         pub track_count: TemplateChild<gtk::Label>,
         #[template_child]
         pub runtime: TemplateChild<gtk::Label>,
+
+        #[template_child]
+        pub source_button: TemplateChild<gtk::MenuButton>,
+        #[template_child]
+        pub source_button_content: TemplateChild<adw::ButtonContent>,
+        pub active_copy_folder: RefCell<Option<String>>,
 
         #[template_child]
         pub replace_queue: TemplateChild<gtk::Button>,
@@ -613,7 +619,7 @@ impl AlbumContentView {
                             this.set_is_queuing(true);
                             if this.imp().selecting_all.get() {
                                 if let Err(e) =
-                                    library.queue_album(album.clone(), true, true, None).await
+                                    library.queue_album(this.album_for_action(&album), true, true, None).await
                                 {
                                     dbg!(e);
                                 }
@@ -652,7 +658,7 @@ impl AlbumContentView {
                             this.set_is_queuing(true);
                             if this.imp().selecting_all.get() {
                                 if let Err(e) =
-                                    library.queue_album(album.clone(), false, false, None).await
+                                    library.queue_album(this.album_for_action(&album), false, false, None).await
                                 {
                                     dbg!(e);
                                 }
@@ -778,7 +784,7 @@ impl AlbumContentView {
                     async move {
                         if let (Some(album), Some(library)) = (this.album(), this.get_library())
                             && let Err(e) = library
-                                .queue_album(album.clone(), true, true, Some(position))
+                                .queue_album(this.album_for_action(&album), true, true, Some(position))
                                 .await
                         {
                             dbg!(e);
@@ -825,8 +831,189 @@ impl AlbumContentView {
         }
     }
 
+    /// If the user has selected a non-canonical copy, return a clone of
+    /// `album` rebuilt with that folder URI on its AlbumInfo so any
+    /// dedup-aware Library method targets the right copy. Otherwise return
+    /// `album` unchanged.
+    fn album_for_action(&self, album: &Album) -> Album {
+        let folder = match self.imp().active_copy_folder.borrow().as_ref() {
+            Some(f) => f.clone(),
+            None => return album.clone(),
+        };
+        let mut info = album.get_info().clone();
+        info.folder_uri = folder;
+        info.alternates = Vec::with_capacity(0);
+        Album::from(info)
+    }
+
+    fn populate_source_picker(&self, album: &Album) {
+        let imp = self.imp();
+        let btn = imp.source_button.get();
+        if !album.has_alternates() {
+            btn.set_visible(false);
+            return;
+        }
+        btn.set_visible(true);
+
+        // Action group (one per AlbumContentView; replaced on each bind).
+        let action = ActionEntry::builder("set-source")
+            .parameter_type(Some(&String::static_variant_type()))
+            .activate(clone!(
+                #[weak(rename_to = this)]
+                self,
+                move |_, _, param| {
+                    let Some(folder) = param.and_then(|v| v.get::<String>()) else { return };
+                    this.switch_to_copy(folder);
+                }
+            ))
+            .build();
+        let group = SimpleActionGroup::new();
+        group.add_action_entries([action]);
+        self.insert_action_group("album", Some(&group));
+
+        // Build the menu and label. The active source is whichever copy
+        // `active_copy_folder` points at (None = canonical).
+        self.refresh_source_picker(album);
+    }
+
+    /// Rebuild the source picker's menu and button label so the check mark
+    /// follows whichever copy is currently active. Safe to call repeatedly.
+    fn refresh_source_picker(&self, album: &Album) {
+        let imp = self.imp();
+        let btn = imp.source_button.get();
+        let content = imp.source_button_content.get();
+
+        let active_folder: String = match imp.active_copy_folder.borrow().as_ref() {
+            Some(f) => f.clone(),
+            None => album.get_folder_uri().to_owned(),
+        };
+
+        // Header label reflects the active source.
+        let (active_mount, active_q) = if active_folder == album.get_folder_uri() {
+            (album.get_mount_name().map(|s| s.to_owned()), album.get_quality_grade())
+        } else if let Some(alt) = album
+            .get_alternates()
+            .iter()
+            .find(|a| a.folder_uri == active_folder)
+        {
+            (alt.mount_name.clone(), alt.quality_grade)
+        } else {
+            (None, album.get_quality_grade())
+        };
+        content.set_label(&source_label(
+            active_mount.as_deref(),
+            active_q,
+            &active_folder,
+        ));
+
+        // Menu with canonical first, then alternates. Prefix the active
+        // entry's label with U+2713 CHECK MARK.
+        let menu = Menu::new();
+        let canonical_uri = album.get_folder_uri();
+        let canonical_label = source_label(
+            album.get_mount_name(),
+            album.get_quality_grade(),
+            canonical_uri,
+        );
+        let canonical_label = if canonical_uri == active_folder {
+            format!("\u{2713} {canonical_label}")
+        } else {
+            format!("   {canonical_label}")
+        };
+        let canonical_item = MenuItem::new(Some(&canonical_label), None);
+        canonical_item.set_action_and_target_value(
+            Some("album.set-source"),
+            Some(&canonical_uri.to_variant()),
+        );
+        menu.append_item(&canonical_item);
+        for alt in album.get_alternates() {
+            let alt_label = source_label(
+                alt.mount_name.as_deref(),
+                alt.quality_grade,
+                &alt.folder_uri,
+            );
+            let alt_label = if alt.folder_uri == active_folder {
+                format!("\u{2713} {alt_label}")
+            } else {
+                format!("   {alt_label}")
+            };
+            let item = MenuItem::new(Some(&alt_label), None);
+            item.set_action_and_target_value(
+                Some("album.set-source"),
+                Some(&alt.folder_uri.to_variant()),
+            );
+            menu.append_item(&item);
+        }
+        btn.set_menu_model(Some(&menu));
+    }
+
+    fn switch_to_copy(&self, folder_uri: String) {
+        let imp = self.imp();
+        let Some(album) = imp.album.borrow().clone() else { return };
+        let canonical = album.get_folder_uri().to_owned();
+        let new_override = if folder_uri == canonical {
+            None
+        } else {
+            Some(folder_uri.clone())
+        };
+        imp.active_copy_folder.replace(new_override);
+        self.refresh_source_picker(&album);
+
+        // Re-fetch the song list constrained to the chosen folder.
+        let library = imp.library.upgrade();
+        let Some(library) = library else { return };
+        let song_list = imp.song_list.clone();
+        song_list.remove_all();
+        let stack = imp.content_stack.get();
+        stack.show_spinner();
+        glib::spawn_future_local(clone!(
+            #[weak(rename_to = this)]
+            self,
+            #[strong]
+            album,
+            #[strong]
+            folder_uri,
+            #[strong]
+            library,
+            async move {
+                let res = library
+                    .get_album_songs_at(&album, &folder_uri, &mut |songs| {
+                        this.imp().song_list.extend_from_slice(&songs);
+                    })
+                    .await;
+                let stack = this.imp().content_stack.get();
+                match res {
+                    Ok(()) => {
+                        if this.imp().song_list.n_items() > 0 {
+                            stack.show_content();
+                        } else {
+                            stack.show_placeholder();
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("[album] switch_to_copy failed: {e:?}");
+                        stack.show_placeholder();
+                    }
+                }
+                this.imp().runtime.set_label(&format_secs_as_duration(
+                    this.imp().song_list
+                        .iter()
+                        .map(|item: Result<Song, _>| {
+                            if let Ok(song) = item {
+                                return song.get_duration();
+                            }
+                            0
+                        })
+                        .sum::<u64>() as f64,
+                ));
+            }
+        ));
+    }
+
     pub fn bind(&self, album: &Album) {
         self.imp().on_selection_changed();
+        self.imp().active_copy_folder.replace(None);
+        self.populate_source_picker(album);
         let title_label = self.imp().title.get();
         let artists_box = self.imp().artists_box.get();
         let rating = self.imp().rating.get();
@@ -927,7 +1114,8 @@ impl AlbumContentView {
                         }
                     }
                     Err(e) => {
-                        dbg!(e);
+                        eprintln!("[album] song fetch failed: {e:?}");
+                        stack.show_placeholder();
                     }
                 };
                 this.imp().runtime.set_label(&format_secs_as_duration(
@@ -1002,4 +1190,24 @@ impl AlbumContentView {
         }
         infobox_spinner.set_visible(true);
     }
+}
+
+fn source_label(mount: Option<&str>, quality: crate::common::QualityGrade, folder_uri: &str) -> String {
+    let mount_str = match mount {
+        Some(m) => m.to_owned(),
+        None => folder_uri
+            .split('/')
+            .next()
+            .filter(|s| !s.is_empty())
+            .unwrap_or("Root")
+            .to_owned(),
+    };
+    let q = match quality {
+        crate::common::QualityGrade::DSD => "DSD",
+        crate::common::QualityGrade::HiRes => "Hi-Res",
+        crate::common::QualityGrade::CD => "CD",
+        crate::common::QualityGrade::Lossy => "Lossy",
+        crate::common::QualityGrade::Unknown => "?",
+    };
+    format!("{mount_str} \u{00B7} {q}")
 }

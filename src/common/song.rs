@@ -20,7 +20,7 @@ use super::Stickers;
 use super::{AlbumInfo, ArtistInfo, artists_to_string, parse_genre_values, parse_mb_artist_tag};
 
 // Mostly for eyecandy
-#[derive(Clone, Copy, Debug, glib::Enum, PartialEq, Default)]
+#[derive(Clone, Copy, Debug, glib::Enum, PartialEq, Eq, PartialOrd, Ord, Default)]
 #[enum_type(name = "EuphonicaQualityGrade")]
 pub enum QualityGrade {
     #[default]
@@ -116,6 +116,10 @@ impl SongInfo {
 
     pub fn into_album_info(self) -> Option<AlbumInfo> {
         self.album
+    }
+
+    pub fn get_quality_grade(&self) -> QualityGrade {
+        self.quality_grade
     }
 
     pub fn into_artist_infos(self) -> Vec<ArtistInfo> {

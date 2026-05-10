@@ -150,6 +150,28 @@
 		<key name="pause-recent" type="b">
 			<default>false</default>
 		</key>
+		<key name="dedup-albums" type="b">
+			<default>true</default>
+			<summary>Deduplicate album copies across MPD mounts</summary>
+			<description>
+			When more than one MPD mount holds the same album, hide all but
+			one canonical copy. The canonical copy is picked by quality
+			grade (HiRes &gt; CD &gt; Lossy &gt; Unknown), then by the
+			user-defined mount priority list, then by lexicographic folder
+			URI as a final tiebreaker. The non-canonical copies remain
+			reachable through a source picker in the album detail view.
+			</description>
+		</key>
+		<key name="mount-priority" type="as">
+			<default>[]</default>
+			<summary>Ordered list of MPD mount names used when picking canonical album copies</summary>
+			<description>
+			Mount names earlier in the list are preferred when picking
+			between duplicate copies of the same album. Mounts not present
+			in this list rank after every listed mount. The list is
+			populated and reordered through the Library Preferences page.
+			</description>
+		</key>
 	</schema>
 
 	<schema id="io.github.htkhiem.Euphonica.metaprovider" path="/io/github/htkhiem/Euphonica/metaprovider/">

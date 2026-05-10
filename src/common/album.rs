@@ -29,6 +29,22 @@ pub struct AlbumInfo {
     pub release_date: Option<Date>,
     pub quality_grade: QualityGrade,
     pub mbid: Option<String>,
+    /// Mount of the canonical copy. `None` when not under any registered mount,
+    /// or when this AlbumInfo wasn't produced by the dedup pass.
+    pub mount_name: Option<String>,
+    /// Other copies of this album, ordered best-first. Always empty for
+    /// AlbumInfos not produced by the dedup pass.
+    pub alternates: Vec<AlbumCopy>,
+}
+
+/// One copy of an album, identified by its album-level folder URI.
+/// Populated by the dedup pass in `MpdWrapper::get_albums_by_query`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AlbumCopy {
+    pub folder_uri: String,
+    /// `None` when the URI is not under any registered mount.
+    pub mount_name: Option<String>,
+    pub quality_grade: QualityGrade,
 }
 
 impl AlbumInfo {
@@ -53,6 +69,8 @@ impl AlbumInfo {
             release_date: None,
             quality_grade,
             mbid: None,
+            mount_name: None,
+            alternates: Vec::with_capacity(0),
         }
     }
 
@@ -104,6 +122,8 @@ impl Default for AlbumInfo {
             release_date: None,
             quality_grade: QualityGrade::Unknown,
             mbid: None,
+            mount_name: None,
+            alternates: Vec::with_capacity(0),
         }
     }
 }
@@ -287,6 +307,19 @@ impl Album {
 
     pub fn set_stickers(&self, stickers: Stickers) {
         let _ = &self.imp().stickers.replace(stickers);
+    }
+
+    pub fn get_mount_name(&self) -> Option<&str> {
+        self.get_info().mount_name.as_deref()
+    }
+
+    pub fn get_alternates(&self) -> &[AlbumCopy] {
+        &self.get_info().alternates
+    }
+
+    /// True when this album has at least one detected alternate copy.
+    pub fn has_alternates(&self) -> bool {
+        !self.get_info().alternates.is_empty()
     }
 }
 

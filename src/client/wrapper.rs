@@ -26,12 +26,16 @@ use crate::cache::sqlite;
 use crate::common::DynamicPlaylist;
 use crate::utils::settings_manager;
 use crate::{
-    common::{Album, Artist, Genre, INode, Song, SongInfo, Stickers, parse_genre_tag},
+    common::{
+        Album, AlbumCopy, AlbumInfo, Artist, Genre, INode, QualityGrade, Song, SongInfo, Stickers,
+        parse_genre_tag,
+    },
     player::PlaybackFlow,
     utils,
 };
 
 use super::connection::{Connection, Error as ClientError, Result as ClientResult, Task};
+use super::mounts::MountRegistry;
 use super::state::{ClientState, ConnectionState, StickersSupportLevel};
 use super::{BATCH_SIZE, FETCH_LIMIT, StickerSetMode};
 
@@ -66,14 +70,18 @@ static MAX_RETRIES: u32 = 3;
 #[derive(Debug)]
 pub struct MpdWrapper {
     // Handles return bool to indicate whether the threads stopped due to an error
-    // (true) or disconnection request (false).
+    // (true) or disconnection request (false). Held to keep the threads alive for
+    // the lifetime of the wrapper; never read.
+    #[allow(dead_code)]
     fg_handle: thread::JoinHandle<bool>,
+    #[allow(dead_code)]
     bg_handle: thread::JoinHandle<bool>,
     state: ClientState,
     fg_sender: Sender<Task>, // For sending tasks to the interactive client
     bg_sender: Sender<Task>, // For sending tasks to the background client
     client_version: RefCell<Option<Version>>,
     song_cache: RefCell<LruCache<u32, Song, BuildHasherDefault<NoHashHasher<u32>>>>,
+    mount_registry: RefCell<MountRegistry>,
 }
 
 impl MpdWrapper {
@@ -113,6 +121,7 @@ impl MpdWrapper {
                 NonZero::new(16384).unwrap(),
                 BuildHasherDefault::default(),
             )),
+            mount_registry: RefCell::new(MountRegistry::new()),
         });
 
         wrapper.clone().setup_channel(idle_receiver);
@@ -122,6 +131,100 @@ impl MpdWrapper {
 
     pub fn get_client_state(&self) -> ClientState {
         self.state.clone()
+    }
+
+    /// Read-only borrow of the mount registry. Use this to classify URIs and
+    /// rank mounts when consuming dedup-aware AlbumInfos.
+    pub fn mounts(&self) -> std::cell::Ref<'_, MountRegistry> {
+        self.mount_registry.borrow()
+    }
+
+    /// Re-run `listmounts` and reload the user's priority list from GSettings.
+    /// Logs and returns the error on failure (the registry keeps whatever it
+    /// last had so dedup keeps working with stale data).
+    pub async fn refresh_mounts(&self) -> ClientResult<()> {
+        let (s, r) = oneshot::channel();
+        let mounts = self.foreground(Task::ListMounts(s), r).await?;
+        let priority: Vec<String> = utils::settings_manager()
+            .child("library")
+            .strv("mount-priority")
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let mut reg = self.mount_registry.borrow_mut();
+        reg.set_known(mounts);
+        reg.set_priority(priority);
+        Ok(())
+    }
+
+    /// Reload only the priority list from GSettings (cheap; no MPD round-trip).
+    /// Call this when the user reorders the mount list in Preferences.
+    pub fn reload_mount_priority(&self) {
+        let priority: Vec<String> = utils::settings_manager()
+            .child("library")
+            .strv("mount-priority")
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        self.mount_registry.borrow_mut().set_priority(priority);
+    }
+
+    /// Group `songs` by their `(album_title, albumartist)` tuple and run the
+    /// dedup pass per group, returning one canonical AlbumInfo per match
+    /// group. Used by callers that fetch songs across many albums in a
+    /// single MPD round-trip (e.g. artist views).
+    ///
+    /// Songs without an `album` field are silently ignored. The returned
+    /// AlbumInfos carry `mount_name` and `alternates` populated identically
+    /// to the per-tuple dedup path in `get_albums_by_query`.
+    pub fn dedup_album_infos_from_songs(&self, songs: Vec<crate::common::SongInfo>) -> Vec<AlbumInfo> {
+        use std::collections::HashMap;
+
+        // Group by (title, albumartist). Songs without an album are dropped.
+        let mut by_tuple: HashMap<(String, Option<String>), Vec<crate::common::SongInfo>> =
+            HashMap::new();
+        for s in songs {
+            let Some(album) = s.album.as_ref() else { continue };
+            let key = (album.title.clone(), album.albumartist.clone());
+            by_tuple.entry(key).or_default().push(s);
+        }
+
+        let mut out: Vec<AlbumInfo> = Vec::new();
+        for ((_title, _albumartist), tuple_songs) in by_tuple {
+            // Build per-tuple quality_by_folder, identical to
+            // get_albums_by_query's dedup branch.
+            let infos = {
+                let mounts = self.mount_registry.borrow();
+                let mut quality_by_folder: HashMap<String, QualityGrade> = HashMap::new();
+                for s in &tuple_songs {
+                    let folder = crate::utils::strip_filename_linux(&s.uri).to_string();
+                    let qg = s.get_quality_grade();
+                    quality_by_folder
+                        .entry(folder)
+                        .and_modify(|cur| {
+                            if qg > *cur {
+                                *cur = qg;
+                            }
+                        })
+                        .or_insert(qg);
+                }
+                let rank_for_uri = move |uri: &str| -> (QualityGrade, usize, Option<String>) {
+                    let folder = crate::utils::strip_filename_linux(uri).to_string();
+                    let qg = *quality_by_folder
+                        .get(&folder)
+                        .unwrap_or(&QualityGrade::Unknown);
+                    let mn = mounts.classify(uri).map(|s| s.to_owned());
+                    let rank = mounts.rank(mn.as_deref());
+                    (qg, rank, mn)
+                };
+                build_dedup_album_infos(tuple_songs, rank_for_uri)
+            };
+            out.extend(infos);
+        }
+
+        // Stable order across calls.
+        out.sort_by(|a, b| a.folder_uri.cmp(&b.folder_uri));
+        out
     }
 
     fn setup_channel(self: Rc<Self>, idle_receiver: Receiver<Subsystem>) {
@@ -167,15 +270,22 @@ impl MpdWrapper {
     }
 
     async fn handle_idle_changes(&self, subsystem: Subsystem) {
-        self.state.emit_boxed_result("idle", subsystem); // Handle some directly here
+        // Refresh subsystem-relevant local state BEFORE notifying observers,
+        // so views that re-init on idle see the fresh data.
+        if matches!(subsystem, Subsystem::Mount) {
+            if let Err(e) = self.refresh_mounts().await {
+                eprintln!("[mounts] refresh failed after Mount idle: {e:?}");
+            }
+        }
+        self.state.emit_boxed_result("idle", subsystem);
         match subsystem {
-            Subsystem::Database => {
-                // Database changed after updating. Perform a reconnection,
-                // which will also trigger views to refresh their contents.
+            Subsystem::Database | Subsystem::Mount => {
+                // Database changed (or the set of mounts changed, which can
+                // make tracks appear/disappear). Reconnect to trigger a full
+                // library refresh on the consumer side.
                 let (s, r) = oneshot::channel();
                 let _ = self.background(Task::Connect(s), r).await;
             }
-            // More to come
             _ => {}
         }
     }
@@ -325,6 +435,9 @@ impl MpdWrapper {
             .await?;
 
         self.state.set_connection_state(ConnectionState::Connected);
+        if let Err(e) = self.refresh_mounts().await {
+            eprintln!("[mounts] listmounts failed on connect: {e:?}");
+        }
         Ok(())
     }
 
@@ -848,9 +961,11 @@ impl MpdWrapper {
     where
         F: FnMut(Album),
     {
-        // TODO: batched windowed retrieval
-        // Get list of unique album tags, grouped by albumartist
-        // Will block child thread until info for all albums have been retrieved.
+        let dedup_on = utils::settings_manager()
+            .child("library")
+            .boolean("dedup-albums");
+
+        // Get list of unique album tags, grouped by albumartist.
         let (s, r) = oneshot::channel();
         let grouped_vals = self
             .foreground(
@@ -863,37 +978,99 @@ impl MpdWrapper {
                 r,
             )
             .await?;
+
         for (key, tags) in grouped_vals.groups.into_iter() {
             for tag in tags.iter() {
-                let mut query = Query::new();
-                query.and(Term::Tag(Cow::Borrowed("album")), tag.to_string());
-                query.and(Term::Tag(Cow::Borrowed("albumartist")), key.to_string());
-                let (s, r) = oneshot::channel();
-                let mut songs = self
-                    .foreground(Task::Find(query, Window::from((0, 1)), s), r)
-                    .await?;
-                if !songs.is_empty() {
-                    if let Some(album_info) = std::mem::take(&mut songs[0]).into_album_info() {
-                        let res: Album = album_info.into();
-                        let (s, r) = oneshot::channel();
-                        // Optionally fetch album stickers
-                        if let Ok(stickers) = self
-                            .foreground(
-                                Task::GetKnownStickers("album", res.get_title().to_owned(), s),
-                                r,
-                            )
-                            .await
-                        {
-                            res.set_stickers(stickers);
+                let mut q = Query::new();
+                q.and(Term::Tag(Cow::Borrowed("album")), tag.to_string());
+                q.and(Term::Tag(Cow::Borrowed("albumartist")), key.to_string());
+
+                if !dedup_on {
+                    // Legacy fast path: one song, one Album per tuple.
+                    let (s, r) = oneshot::channel();
+                    let mut songs = self
+                        .foreground(Task::Find(q, Window::from((0, 1)), s), r)
+                        .await?;
+                    if !songs.is_empty() {
+                        if let Some(info) = std::mem::take(&mut songs[0]).into_album_info() {
+                            self.emit_album_with_stickers(info, respond).await;
+                        } else {
+                            println!("No album info found for {tag}");
                         }
-                        respond(res);
-                    } else {
-                        println!("No album info found for {tag}");
                     }
+                    continue;
+                }
+
+                // Dedup path: fetch all songs of this album-tuple, then bucket.
+                let (s, r) = oneshot::channel();
+                let songs = self
+                    .foreground(Task::Find(q, Window::from((0, FETCH_LIMIT as u32)), s), r)
+                    .await?;
+                if songs.len() == FETCH_LIMIT {
+                    eprintln!(
+                        "[dedup] album {tag:?} hit FETCH_LIMIT ({FETCH_LIMIT}); dedup truncated"
+                    );
+                }
+                if songs.is_empty() {
+                    continue;
+                }
+
+                // Compute dedup output WITHOUT holding any RefCell borrow across an await.
+                // `mounts` borrow is bounded by this inner block; `infos` is owned and
+                // can survive into the await below.
+                let infos = {
+                    let mounts = self.mount_registry.borrow();
+                    let mut quality_by_folder: std::collections::HashMap<String, QualityGrade> =
+                        std::collections::HashMap::new();
+                    for s in &songs {
+                        let folder = crate::utils::strip_filename_linux(&s.uri).to_string();
+                        let qg = s.get_quality_grade();
+                        quality_by_folder
+                            .entry(folder)
+                            .and_modify(|cur| {
+                                if qg > *cur {
+                                    *cur = qg;
+                                }
+                            })
+                            .or_insert(qg);
+                    }
+                    let rank_for_uri = move |uri: &str| -> (QualityGrade, usize, Option<String>) {
+                        let folder = crate::utils::strip_filename_linux(uri).to_string();
+                        let qg = *quality_by_folder
+                            .get(&folder)
+                            .unwrap_or(&QualityGrade::Unknown);
+                        let mn = mounts.classify(uri).map(|s| s.to_owned());
+                        let rank = mounts.rank(mn.as_deref());
+                        (qg, rank, mn)
+                    };
+                    build_dedup_album_infos(songs, rank_for_uri)
+                };
+
+                for info in infos {
+                    self.emit_album_with_stickers(info, respond).await;
                 }
             }
         }
         Ok(())
+    }
+
+    /// Wrap an AlbumInfo in an Album GObject, attach known stickers, and emit.
+    async fn emit_album_with_stickers<F>(&self, info: AlbumInfo, respond: &mut F)
+    where
+        F: FnMut(Album),
+    {
+        let res: Album = info.into();
+        let (s, r) = oneshot::channel();
+        if let Ok(stickers) = self
+            .foreground(
+                Task::GetKnownStickers("album", res.get_title().to_owned(), s),
+                r,
+            )
+            .await
+        {
+            res.set_stickers(stickers);
+        }
+        respond(res);
     }
 
     pub async fn get_recent_albums<F>(&self, respond: &mut F) -> ClientResult<()>
@@ -1264,5 +1441,214 @@ impl Drop for MpdWrapper {
         executor::block_on(async move {
             let _ = self.disconnect(true, ConnectionState::NotConnected).await;
         });
+    }
+}
+
+/// Bucket a slice of songs (all from the same `(album, albumartist)` MPD tuple)
+/// into match groups of duplicate copies, then pick a canonical AlbumInfo for
+/// each group with alternates filled in. The returned Vec is one canonical
+/// AlbumInfo per match group.
+///
+/// `rank_for_uri` returns `(quality_grade, mount_rank, mount_name)` for a URI
+/// so the caller can encapsulate the MountRegistry lookup. Lower mount_rank
+/// is better.
+fn build_dedup_album_infos<F>(
+    songs: Vec<crate::common::SongInfo>,
+    rank_for_uri: F,
+) -> Vec<AlbumInfo>
+where
+    F: Fn(&str) -> (QualityGrade, usize, Option<String>),
+{
+    use std::collections::{HashMap, BTreeMap};
+
+    // Step 1: bucket songs by their parent folder URI (one bucket = one copy).
+    // Normalize trailing slashes so paths from URIs containing `//` (which
+    // happen with archive-backed MPD storages) still bucket consistently and
+    // so downstream consumers see a clean, slash-free directory string.
+    let mut by_folder: HashMap<String, Vec<crate::common::SongInfo>> = HashMap::new();
+    for s in songs {
+        let folder = crate::utils::strip_filename_linux(&s.uri)
+            .trim_end_matches('/')
+            .to_string();
+        by_folder.entry(folder).or_default().push(s);
+    }
+
+    // Step 2: merge multi-disc siblings under a common parent.
+    // Two folder buckets are merged into one copy when:
+    //   (a) their parent paths are equal (they're siblings), and
+    //   (b) either their disc-tag sets are disjoint (and both non-empty), OR
+    //       their folder names share a common stem and differ only in a
+    //       trailing numeric run (e.g. "Vol 01"/"Vol 02", "Disc 1"/"Disc 2",
+    //       "CD1"/"CD2") — i.e. they look like volume/disc subfolders.
+    // The lex-smallest folder URI is the surviving key.
+    {
+        let mut keys_sorted: Vec<String> = by_folder.keys().cloned().collect();
+        keys_sorted.sort();
+        let mut absorbed: std::collections::HashSet<String> = Default::default();
+        for i in 0..keys_sorted.len() {
+            let a = &keys_sorted[i];
+            if absorbed.contains(a) {
+                continue;
+            }
+            for j in (i + 1)..keys_sorted.len() {
+                let b = &keys_sorted[j];
+                if absorbed.contains(b) {
+                    continue;
+                }
+                if !is_sibling(a, b) {
+                    continue;
+                }
+                let discs_a: std::collections::BTreeSet<i64> = by_folder[a]
+                    .iter()
+                    .filter_map(|s| s.disc)
+                    .collect();
+                let discs_b: std::collections::BTreeSet<i64> = by_folder[b]
+                    .iter()
+                    .filter_map(|s| s.disc)
+                    .collect();
+                let merge = if !discs_a.is_empty() && !discs_b.is_empty() {
+                    discs_a.is_disjoint(&discs_b)
+                } else if discs_a.is_empty() && discs_b.is_empty() {
+                    folders_are_numeric_siblings(a, b)
+                } else {
+                    false
+                };
+                if merge {
+                    let mut b_songs = by_folder.remove(b).unwrap_or_default();
+                    by_folder.get_mut(a).unwrap().append(&mut b_songs);
+                    absorbed.insert(b.clone());
+                }
+            }
+        }
+    }
+
+    // Step 3: pick a representative MBID per bucket, then group buckets by MBID.
+    #[derive(Debug)]
+    struct CopyCandidate {
+        folder_uri: String,
+        rep_song: crate::common::SongInfo,
+        mbid: Option<String>,
+    }
+
+    let copies: Vec<CopyCandidate> = by_folder
+        .into_iter()
+        .filter_map(|(folder_uri, mut songs)| {
+            if songs.is_empty() {
+                return None;
+            }
+            // Pick representative MBID = most common non-None MBID in bucket.
+            let mut counts: HashMap<String, usize> = HashMap::new();
+            for s in &songs {
+                if let Some(album) = s.album.as_ref() {
+                    if let Some(m) = album.mbid.as_ref() {
+                        *counts.entry(m.clone()).or_default() += 1;
+                    }
+                }
+            }
+            let mbid = counts
+                .into_iter()
+                .max_by_key(|(_, n)| *n)
+                .map(|(m, _)| m);
+            // Pick representative song: first by track tag asc, falling back to URI.
+            songs.sort_by_key(|s| (s.track.unwrap_or(i64::MAX), s.uri.clone()));
+            let rep_song = songs.into_iter().next().unwrap();
+            Some(CopyCandidate {
+                folder_uri,
+                rep_song,
+                mbid,
+            })
+        })
+        .collect();
+
+    // Group key: Some(mbid) groups by exact MBID; None groups all
+    // mbid-less copies together (fallback group).
+    let mut groups: BTreeMap<Option<String>, Vec<CopyCandidate>> = BTreeMap::new();
+    for c in copies {
+        groups.entry(c.mbid.clone()).or_default().push(c);
+    }
+
+    // Step 4: pick canonical for each group.
+    let mut out: Vec<AlbumInfo> = Vec::new();
+    for (_mbid, mut group) in groups {
+        if group.is_empty() {
+            continue;
+        }
+        // Sort by (quality_grade desc, mount_rank asc, folder_uri asc).
+        group.sort_by(|a, b| {
+            let (qa, ra, _) = rank_for_uri(&a.folder_uri);
+            let (qb, rb, _) = rank_for_uri(&b.folder_uri);
+            qb.cmp(&qa)               // desc on quality
+                .then(ra.cmp(&rb))    // asc on mount rank (lower = better)
+                .then(a.folder_uri.cmp(&b.folder_uri))
+        });
+        let canonical = group.remove(0);
+        let mut info: AlbumInfo = match canonical.rep_song.into_album_info() {
+            Some(info) => info,
+            None => {
+                eprintln!(
+                    "[dedup] representative song lacks album info; skipping group ({})",
+                    canonical.folder_uri
+                );
+                continue;
+            }
+        };
+        let (canonical_qg, _, canonical_mn) = rank_for_uri(&canonical.folder_uri);
+        info.mount_name = canonical_mn;
+        info.quality_grade = canonical_qg;
+        // Overwrite folder_uri with the bucket key (already trimmed of any
+        // trailing slash) so downstream consumers don't have to re-normalize.
+        info.folder_uri = canonical.folder_uri.clone();
+        info.alternates = group
+            .into_iter()
+            .map(|c| {
+                let (qg, _, mn) = rank_for_uri(&c.folder_uri);
+                AlbumCopy {
+                    folder_uri: c.folder_uri,
+                    mount_name: mn,
+                    quality_grade: qg,
+                }
+            })
+            .collect();
+        out.push(info);
+    }
+
+    // Stable order: by canonical folder_uri.
+    out.sort_by(|a, b| a.folder_uri.cmp(&b.folder_uri));
+    out
+}
+
+/// True when `a` and `b` are siblings under a common parent folder URI.
+/// e.g. "music/Album/Disc 1" and "music/Album/Disc 2" -> true;
+///       "music/Album"        and "music/Album/Disc 2" -> false.
+fn is_sibling(a: &str, b: &str) -> bool {
+    let parent_a = a.rsplit_once('/').map(|(p, _)| p);
+    let parent_b = b.rsplit_once('/').map(|(p, _)| p);
+    match (parent_a, parent_b) {
+        (Some(pa), Some(pb)) => pa == pb && a != b,
+        _ => false,
+    }
+}
+
+/// True when both folder URIs end in a name of the form `<stem><digits>`,
+/// the stems are identical, and the digit suffixes differ. Catches the
+/// common multi-disc/volume layouts ("Vol 01" / "Vol 02", "Disc 1" / "Disc 2",
+/// "CD1" / "CD2") so we can merge them when no `disc` tags are available.
+fn folders_are_numeric_siblings(a: &str, b: &str) -> bool {
+    fn split(folder_uri: &str) -> Option<(&str, u32)> {
+        let name = folder_uri.rsplit('/').next()?;
+        let bytes = name.as_bytes();
+        let mut digit_start = bytes.len();
+        while digit_start > 0 && bytes[digit_start - 1].is_ascii_digit() {
+            digit_start -= 1;
+        }
+        if digit_start == bytes.len() {
+            return None;
+        }
+        let num: u32 = name[digit_start..].parse().ok()?;
+        Some((&name[..digit_start], num))
+    }
+    match (split(a), split(b)) {
+        (Some((stem_a, na)), Some((stem_b, nb))) => stem_a == stem_b && na != nb,
+        _ => false,
     }
 }

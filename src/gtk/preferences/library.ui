@@ -280,5 +280,41 @@
 				</child>
 			</object>
 		</child>
+		<child>
+			<object class="AdwPreferencesGroup">
+				<property name="title" translatable="true">Library sources</property>
+				<property name="description" translatable="true">Behavior when MPD reports the same album under more than one mount.</property>
+				<child>
+					<object class="AdwSwitchRow" id="dedup_albums">
+						<property name="title" translatable="true">Deduplicate album copies</property>
+						<property name="subtitle" translatable="true">Hide duplicate copies of the same album when more than one MPD mount holds it.</property>
+					</object>
+				</child>
+				<child>
+					<object class="AdwActionRow" id="mount_priority_header">
+						<property name="title" translatable="true">Source priority</property>
+						<property name="subtitle" translatable="true">Drag to reorder. Mounts higher in the list win when copies tie on quality.</property>
+						<child type="suffix">
+							<object class="GtkButton" id="mount_priority_refresh">
+								<property name="icon-name">view-refresh-symbolic</property>
+								<property name="tooltip-text" translatable="true">Re-query MPD for the current set of mounts</property>
+								<property name="valign">center</property>
+								<style>
+									<class name="flat"/>
+								</style>
+							</object>
+						</child>
+					</object>
+				</child>
+				<child>
+					<object class="GtkListBox" id="mount_priority_list">
+						<property name="selection-mode">none</property>
+						<style>
+							<class name="boxed-list"/>
+						</style>
+					</object>
+				</child>
+			</object>
+		</child>
     </template>
 </interface>
